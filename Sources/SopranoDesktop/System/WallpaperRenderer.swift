@@ -135,11 +135,14 @@ enum WallpaperError: Error, LocalizedError {
     case renderFailed
     /// The screen no longer shows the Space the setting belongs to.
     case spaceChanged
+    /// macOS reports no picture for the screen, so it could not be put back later.
+    case unreadable
 
     var errorDescription: String? {
         switch self {
         case .renderFailed: "The wallpaper could not be rendered."
         case .spaceChanged: "The screen switched Spaces; the wallpaper is left for the next sync."
+        case .unreadable: "macOS does not report this screen's current wallpaper, so it is left unchanged."
         }
     }
 }

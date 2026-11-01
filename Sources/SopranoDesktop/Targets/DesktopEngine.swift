@@ -51,56 +51,112 @@ final class DesktopEngine {
         var status: Status
     }
 
+    enum Operation {
+        case sync
+        case apply
+        case restore
+    }
+
     static let vscodeBundleID = "com.microsoft.VSCode"
     static let cursorBundleID = "com.todesktop.230313mzl4w4u92"
     static let ghosttyBundleID = "com.mitchellh.ghostty"
     static let chromeBundleIDs = ["com.google.Chrome", "com.google.Chrome.beta", "com.google.Chrome.dev", "com.google.Chrome.canary"]
+    /// `--theme-light` / `--theme-dark` arrived in bat 0.25.
+    static let minimumBatVersion = (0, 25)
 
     let dependencies: Dependencies
-    private(set) var state: DesktopState
+    /// The last state read from state.json (an empty state when it does not exist).
+    private(set) var state = DesktopState()
+    /// Why state.json could not be read; while set, nothing is changed (fail closed: an
+    /// unreadable file may hold the user's originals).
+    private(set) var stateError: String?
+    private let lock: StateLock
 
     init(dependencies: Dependencies) {
         self.dependencies = dependencies
-        self.state = Self.loadState(at: dependencies.paths.stateFile)
+        self.lock = StateLock(url: dependencies.paths.stateLockFile)
+        reloadState()
     }
 
     var paths: TargetPaths { dependencies.paths }
 
     /// Re-reads state.json (another process — the CLI or the app — may have changed it).
     func reloadState() {
-        state = Self.loadState(at: paths.stateFile)
+        let url = paths.stateFile
+        guard let data = try? Data(contentsOf: url) else {
+            state = DesktopState()
+            stateError = FileManager.default.fileExists(atPath: url.path) ? "\(paths.display(url)) could not be read" : nil
+            return
+        }
+        do {
+            state = try DesktopState.decode(data)
+            stateError = nil
+        } catch {
+            engineLog.error("state.json could not be read: \(error.localizedDescription, privacy: .public)")
+            state = DesktopState()
+            stateError = "\(paths.display(url)) is not valid (\(error.localizedDescription)); fix or remove it"
+        }
     }
 
     func apply(settings: DesktopSettings, pair: ThemePair, appearance: Appearance) async -> [ReportItem] {
-        reloadState()
-        state.active = true
-        saveState()
-        return await sync(settings: settings, pair: pair, appearance: appearance)
+        await run(.apply, settings: settings, pair: pair, appearance: appearance, waitForLock: true) ?? []
     }
 
     func restore(settings: DesktopSettings, pair: ThemePair, appearance: Appearance) async -> [ReportItem] {
-        reloadState()
-        state.active = false
-        saveState()
-        return await sync(settings: settings, pair: pair, appearance: appearance)
+        await run(.restore, settings: settings, pair: pair, appearance: appearance, waitForLock: true) ?? []
     }
 
     func sync(settings: DesktopSettings, pair: ThemePair, appearance: Appearance) async -> [ReportItem] {
-        reloadState()
-        var report: [ReportItem] = []
-        let palette = pair.palette(for: appearance)
-        for (setting, desired) in registry(settings: settings, palette: palette) {
-            report.append(ReportItem(name: setting.label, status: reconcile(setting, desired: desired)))
+        await run(.sync, settings: settings, pair: pair, appearance: appearance, waitForLock: true) ?? []
+    }
+
+    /// Runs one operation under the state lock, on state freshly read under it. nil when
+    /// `waitForLock` is false and another process holds the lock.
+    func run(
+        _ operation: Operation,
+        settings: DesktopSettings,
+        pair: ThemePair,
+        appearance: Appearance,
+        waitForLock: Bool
+    ) async -> [ReportItem]? {
+        guard lock.lock(wait: waitForLock) else {
+            if waitForLock {
+                return [ReportItem(name: "state.lock", status: .failed("\(paths.display(paths.stateLockFile)) could not be locked"))]
+            }
+            return nil
         }
-        if state.active {
-            for target in DesktopTarget.allCases {
-                report.append(ReportItem(
-                    name: target.displayName,
-                    status: await writeTheme(for: target, enabled: settings.apps.contains(target), pair: pair)
-                ))
+        defer { lock.unlock() }
+        reloadState()
+        if let stateError {
+            return [ReportItem(name: "state.json", status: .failed(stateError))]
+        }
+        switch operation {
+        case .sync: break
+        case .apply, .restore:
+            state.active = operation == .apply
+            if let error = saveState() {
+                return [ReportItem(name: "state.json", status: .failed(error))]
             }
         }
-        saveState()
+
+        var report: [ReportItem] = []
+        // Theme files first, so an app is only switched to themes that exist; an app whose
+        // themes could not be written or installed is not switched (or is switched back).
+        var failed: Set<DesktopTarget> = []
+        if state.active {
+            for target in DesktopTarget.allCases {
+                let status = await writeTheme(for: target, enabled: settings.apps.contains(target), pair: pair)
+                if case .failed = status { failed.insert(target) }
+                report.append(ReportItem(name: target.displayName, status: status))
+            }
+        }
+        let palette = pair.palette(for: appearance)
+        for (setting, desired) in registry(settings: settings, palette: palette, failed: failed) {
+            report.append(ReportItem(name: setting.label, status: reconcile(setting, desired: desired)))
+        }
+        if let error = saveState() {
+            report.append(ReportItem(name: "state.json", status: .failed(error)))
+        }
         return report
     }
 
@@ -131,14 +187,14 @@ final class DesktopEngine {
 
     /// Every setting Soprano Desktop may change, with its theme value while it is wanted
     /// (active, switched on, app installed) and nil otherwise.
-    private func registry(settings: DesktopSettings, palette: Palette) -> [(ManagedSetting, JSONValue?)] {
+    private func registry(settings: DesktopSettings, palette: Palette, failed: Set<DesktopTarget>) -> [(ManagedSetting, JSONValue?)] {
         let active = state.active
         var entries: [(ManagedSetting, JSONValue?)] = []
         let preferences = dependencies.preferences
 
         func wants(_ system: SystemSetting) -> Bool { active && settings.system.contains(system) }
         func wants(_ target: DesktopTarget) -> Bool {
-            active && settings.apps.contains(target) && isInstalled(target)
+            active && settings.apps.contains(target) && isInstalled(target) && !failed.contains(target)
         }
 
         entries.append((
@@ -154,43 +210,43 @@ final class DesktopEngine {
         // One entry per screen on its current Space. Recorded originals of Spaces not
         // visible now are not in the registry, so they stay recorded until their Space is.
         for screen in dependencies.desktop.screens() {
-            guard let setting = WallpaperSetting(screen: screen, desktop: dependencies.desktop, fillColor: palette.bgBase) else { continue }
+            guard let setting = WallpaperSetting(screen: screen, desktop: dependencies.desktop) else { continue }
             entries.append((setting, wants(.wallpaper) ? wallpaperValue(for: palette, screen: screen) : nil))
         }
 
         entries.append((
-            LineFileSetting(id: "ghostty:theme", label: "Ghostty theme", file: paths.ghosttyConfigFile,
-                            setting: LineSetting(key: "theme", syntax: .ghostty)),
-            wants(.ghostty) ? .string(GhosttyTheme.themeSetting) : nil
+            ConfigFileSetting(owner: DesktopTarget.ghostty.rawValue, label: "Ghostty config",
+                              file: paths.ghosttyConfigFile, format: .ghostty),
+            wants(.ghostty) ? .object(["theme": .string(GhosttyTheme.themeSetting)]) : nil
         ))
-
         for (target, file) in [(DesktopTarget.vscode, paths.vscodeSettingsFile), (.cursor, paths.cursorSettingsFile)] {
-            let values: [(String, JSONValue)] = [
-                ("window.autoDetectColorScheme", .bool(true)),
-                ("workbench.preferredLightColorTheme", .string(ThemeNames.light)),
-                ("workbench.preferredDarkColorTheme", .string(ThemeNames.dark)),
-            ]
-            for (key, value) in values {
-                entries.append((
-                    JSONCFileSetting(id: "\(target.rawValue):\(key)", label: "\(target.displayName) \(key)", file: file, key: key),
-                    wants(target) ? value : nil
-                ))
-            }
+            entries.append((
+                ConfigFileSetting(owner: target.rawValue, label: "\(target.displayName) settings", file: file, format: .jsonc),
+                wants(target) ? .object([
+                    "window.autoDetectColorScheme": .bool(true),
+                    "workbench.preferredLightColorTheme": .string(ThemeNames.light),
+                    "workbench.preferredDarkColorTheme": .string(ThemeNames.dark),
+                ]) : nil
+            ))
         }
-
         // `auto:system` picks --theme-light / --theme-dark from macOS's appearance, also when
         // bat's output is not a terminal (plain `auto` then falls back to bat's default).
-        let batValues: [(String, String)] = [
-            ("theme", "auto:system"),
-            ("theme-light", "\"\(ThemeNames.light)\""),
-            ("theme-dark", "\"\(ThemeNames.dark)\""),
-        ]
-        for (key, value) in batValues {
-            entries.append((
-                LineFileSetting(id: "bat:\(key)", label: "bat --\(key)", file: paths.batConfigFile,
-                                setting: LineSetting(key: key, syntax: .argument)),
-                wants(.bat) ? .string(value) : nil
-            ))
+        entries.append((
+            ConfigFileSetting(owner: DesktopTarget.bat.rawValue, label: "bat config", file: paths.batConfigFile, format: .argument),
+            wants(.bat) ? .object([
+                "theme": .string("auto:system"),
+                "theme-light": .string("\"\(ThemeNames.light)\""),
+                "theme-dark": .string("\"\(ThemeNames.dark)\""),
+            ]) : nil
+        ))
+
+        // Config files recorded earlier that are no longer the target (another environment's
+        // path, a newly created Ghostty file): restored from their self-describing record.
+        let listed = Set(entries.map { $0.0.id })
+        for (id, record) in state.originals.sorted(by: { $0.key < $1.key }) where !listed.contains(id) {
+            if let setting = ConfigFileSetting(id: id, record: record) {
+                entries.append((setting, nil))
+            }
         }
         return entries
     }
@@ -198,20 +254,27 @@ final class DesktopEngine {
     private func reconcile(_ setting: ManagedSetting, desired: JSONValue?) -> Status {
         do {
             if let desired {
-                let current = try setting.read()
                 if state.originals[setting.id] == nil {
-                    // Recorded and saved before the first write, so a crash cannot lose it.
-                    state.originals[setting.id] = current
-                    saveState()
+                    // Recorded and saved before the first write; if it cannot be saved, the
+                    // setting is not changed.
+                    state.originals[setting.id] = try setting.capture(for: desired)
+                    if let error = saveState() {
+                        state.originals[setting.id] = nil
+                        return .failed(error)
+                    }
                 }
-                guard current != .value(desired) else { return .unchanged }
-                try setting.write(.value(desired))
+                if try setting.matches(desired) { return .unchanged }
+                if let written = try setting.apply(desired) {
+                    state.written[setting.id] = written
+                    _ = saveState()
+                }
                 return .applied
             }
             guard let original = state.originals[setting.id] else { return .skipped("not applied") }
-            try setting.write(original)
+            try setting.restore(original, written: state.written[setting.id])
             state.originals[setting.id] = nil
-            saveState()
+            state.written[setting.id] = nil
+            _ = saveState()
             return .restored
         } catch {
             engineLog.error("\(setting.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -229,7 +292,12 @@ final class DesktopEngine {
                 scale: screen.scale,
                 into: paths.wallpaperDirectory
             )
-            let picture = DesktopPicture(url: url, scaling: 3 /* NSImageScaling.scaleProportionallyUpOrDown */, allowClipping: true)
+            let picture = DesktopPicture(
+                url: url,
+                scaling: 3 /* NSImageScaling.scaleProportionallyUpOrDown */,
+                allowClipping: true,
+                fillColor: palette.bgBase
+            )
             return WallpaperSetting.json(picture)
         } catch {
             engineLog.error("Wallpaper for \(screen.name, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -260,9 +328,19 @@ final class DesktopEngine {
                 return try await installExtension(for: target, pair: pair)
             default:
                 let changed = try writeFiles(Self.files(for: target, pair: pair), under: paths.themeRoot(for: target))
-                if target == .bat, changed, let bat = dependencies.apps.executable(named: "bat") {
-                    let result = await dependencies.runner.run(bat, ["cache", "--build"])
-                    guard result.succeeded else { return .failed("bat cache --build: \(result.output)") }
+                if target == .bat, let bat = dependencies.apps.executable(named: "bat") {
+                    if changed {
+                        let result = await dependencies.runner.run(bat, ["cache", "--build"])
+                        guard result.succeeded else { return .failed("bat cache --build: \(result.output)") }
+                    }
+                    // An older bat rejects the light/dark options in its config, so it is
+                    // only switched when it understands them (reported as a problem).
+                    let version = await dependencies.runner.run(bat, ["--version"])
+                    guard let found = Self.batVersion(version.output),
+                          found >= Self.minimumBatVersion.0 * 1000 + Self.minimumBatVersion.1
+                    else {
+                        return .failed("needs bat 0.25 or newer for light and dark themes (found: \(version.output.trimmingCharacters(in: .whitespacesAndNewlines)))")
+                    }
                 }
                 if let hint = target.setupHint, !target.selectsTheme {
                     return .needsSetup(hint)
@@ -287,6 +365,13 @@ final class DesktopEngine {
         return changed
     }
 
+    /// `bat 0.25.0` → 25 (major × 1000 + minor); nil when there is no version.
+    static func batVersion(_ output: String) -> Int? {
+        guard let range = output.range(of: #"\d+\.\d+"#, options: .regularExpression) else { return nil }
+        let parts = output[range].split(separator: ".").compactMap { Int($0) }
+        return parts.count == 2 ? parts[0] * 1000 + parts[1] : nil
+    }
+
     // MARK: Editor extension
 
     /// The `code` / `cursor` command inside the app bundle.
@@ -298,11 +383,12 @@ final class DesktopEngine {
     }
 
     /// Builds the .vsix and installs it with the editor's CLI when the theme changed since
-    /// the last install. The editor picks the new colours up after Reload Window.
+    /// the last install, or when the extension is no longer in the editor's extensions
+    /// folder. The editor picks the new colours up after Reload Window.
     private func installExtension(for target: DesktopTarget, pair: ThemePair) async throws -> Status {
         guard let cli = editorCLI(for: target) else { return .skipped("not installed") }
         let hash = Self.contentHash(VSCodeTheme.packageFiles(for: pair, version: "0.0.0"))
-        if state.packages[target.rawValue] == hash {
+        if state.packages[target.rawValue] == hash, isExtensionPresent(for: target) {
             return .unchanged
         }
         let version = "1.0.\(Int(Date().timeIntervalSince1970))"
@@ -312,8 +398,15 @@ final class DesktopEngine {
             return .failed("\(cli.lastPathComponent) --install-extension: \(result.output.trimmingCharacters(in: .whitespacesAndNewlines))")
         }
         state.packages[target.rawValue] = hash
-        saveState()
+        _ = saveState()
         return .applied
+    }
+
+    /// Whether `soprano.soprano-theme-<version>` is in the editor's extensions folder.
+    private func isExtensionPresent(for target: DesktopTarget) -> Bool {
+        let folder = paths.editorExtensionsDirectory(for: target)
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        return names.contains { $0.hasPrefix(VSCodeTheme.extensionID + "-") }
     }
 
     /// Writes the package members into a staging directory and zips them (`ditto`, no
@@ -352,23 +445,16 @@ final class DesktopEngine {
 
     // MARK: State
 
-    private static func loadState(at url: URL) -> DesktopState {
-        guard let data = try? Data(contentsOf: url) else { return DesktopState() }
-        do {
-            return try DesktopState.decode(data)
-        } catch {
-            engineLog.error("state.json could not be read: \(error.localizedDescription, privacy: .public)")
-            return DesktopState()
-        }
-    }
-
-    private func saveState() {
+    /// Writes state.json atomically; the error message when it could not.
+    private func saveState() -> String? {
         do {
             let url = paths.stateFile
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try state.encoded().write(to: url, options: .atomic)
+            return nil
         } catch {
             engineLog.error("state.json could not be written: \(error.localizedDescription, privacy: .public)")
+            return "\(paths.display(paths.stateFile)) could not be saved: \(error.localizedDescription)"
         }
     }
 }

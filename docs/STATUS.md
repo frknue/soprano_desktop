@@ -17,7 +17,9 @@ experiment: `docs/ROADMAP.md`.
 - Apps: Ghostty, VS Code, Cursor, bat (themes + selection switched), Neovim, fzf, Chrome
   (themes; one setup line each).
 - Restore: every changed value goes back to the user's own (originals recorded once, saved
-  before the first write).
+  before the first write; nothing is written when they cannot be saved). Untouched config
+  files come back byte-for-byte; edited ones get only Soprano's keys reverted. CLI and app
+  serialise on `state.lock`; an unreadable state.json stops all changes.
 
 Verified (2026-11-01): `swift build`, `swift test` green; `SopranoDesktop export` output
 checked with the real tools — `ghostty +validate-config` on both themes, Neovim headless
@@ -30,6 +32,11 @@ the Odyssey G91F's display UUID and current Space (Space 1) through
 Not yet run on the real system: Apply has not been pressed on this Mac, so the live
 accent/highlight change (CoreUI notifications), `NSWorkspace` wallpaper switching and the
 real VS Code/Cursor install are unobserved.
+
+Known gap: when a VS Code/Cursor settings file was edited after Apply, Restore reverts the
+keys through the vendored `JSONCText`, whose removal drops a comment that trails the last
+property (and a trailing comma). The fix belongs in Soprano's `Config/JSONCText.swift`,
+then `scripts/sync-soprano-chrome.sh`.
 
 ## Next
 

@@ -38,17 +38,32 @@ private final class FakeDesktop: DesktopPictures {
         return pictures["\(id):\(space)"]
     }
 
-    func setPicture(_ picture: DesktopPicture, fillColor: RGB?, forScreen id: String) throws {
+    func setPicture(_ picture: DesktopPicture, forScreen id: String) throws {
         guard let space = currentSpace[id] ?? nil else { return }
         pictures["\(id):\(space)"] = picture
     }
 }
 
+/// Records calls; `bat --version` reports 0.25.0, and an editor install drops the extension
+/// folder where the editor would.
 private final class FakeRunner: ProcessRunning, @unchecked Sendable {
     var calls: [[String]] = []
+    /// Executable names that exit 1.
+    var failing: Set<String> = []
+    var batVersion = "bat 0.25.0"
+    var extensionsDirectory: URL?
 
     func run(_ executable: URL, _ arguments: [String]) async -> ProcessResult {
-        calls.append([executable.lastPathComponent] + arguments)
+        let name = executable.lastPathComponent
+        calls.append([name] + arguments)
+        if failing.contains(name) { return ProcessResult(status: 1, output: "failed") }
+        if name == "bat", arguments == ["--version"] { return ProcessResult(status: 0, output: batVersion) }
+        if arguments.contains("--install-extension"), let extensionsDirectory {
+            try? FileManager.default.createDirectory(
+                at: extensionsDirectory.appendingPathComponent("\(VSCodeTheme.extensionID)-1.0.0"),
+                withIntermediateDirectories: true
+            )
+        }
         return ProcessResult(status: 0, output: "")
     }
 }
@@ -92,6 +107,7 @@ struct DesktopEngineTests {
             try FileManager.default.createDirectory(at: paths.vscodeSettingsFile.deletingLastPathComponent(), withIntermediateDirectories: true)
             try "{\n  // mine\n  \"workbench.colorTheme\": \"Rider Dark\"\n}\n".write(to: paths.vscodeSettingsFile, atomically: true, encoding: .utf8)
             preferences.values = ["AppleAccentColor": -1, "AppleHighlightColor": "0.000000 0.340099 0.514652 Other"]
+            runner.extensionsDirectory = paths.editorExtensionsDirectory(for: .vscode)
             engine = DesktopEngine(dependencies: .init(
                 paths: paths,
                 preferences: preferences,
@@ -133,7 +149,9 @@ struct DesktopEngineTests {
         #expect(fixture.desktop.shown(screen: "A", space: "1") == "beach.jpg")
         #expect(try fixture.text(fixture.paths.ghosttyConfigFile) == originalGhostty)
         #expect(try fixture.text(fixture.paths.vscodeSettingsFile) == originalVSCode)
-        #expect(fixture.engine.state == DesktopState(active: false, originals: [:], packages: fixture.engine.state.packages))
+        #expect(fixture.engine.state.active == false)
+        #expect(fixture.engine.state.originals.isEmpty)
+        #expect(fixture.engine.state.written.isEmpty)
     }
 
     @Test func reapplyingAfterAnAppearanceChangeKeepsTheUsersOriginalNotTheEarlierThemeValue() async throws {
@@ -174,7 +192,8 @@ struct DesktopEngineTests {
         _ = await fixture.engine.restore(settings: .defaults, pair: TestPalettes.folio, appearance: .light)
 
         #expect(fixture.preferences.values["AppleAccentColor"] == nil)
-        #expect(!(try fixture.text(fixture.paths.batConfigFile)).contains("theme-light"))
+        // bat had no config file: Restore removes the one Apply created.
+        #expect(!FileManager.default.fileExists(atPath: fixture.paths.batConfigFile.path))
     }
 
     @Test func theEditorExtensionIsReinstalledOnlyWhenTheThemeChanges() async throws {
@@ -239,6 +258,22 @@ struct DesktopEngineTests {
         #expect(fixture.desktop.shown(screen: "A", space: "1") == "beach.jpg")
     }
 
+    @Test func anEditorWhoseExtensionDidNotInstallIsNotSwitchedToTheMissingTheme() async throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        fixture.runner.failing = ["code"]
+        let original = try fixture.text(fixture.paths.vscodeSettingsFile)
+
+        let report = await fixture.engine.apply(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+
+        #expect(try fixture.text(fixture.paths.vscodeSettingsFile) == original)
+        #expect(report.contains { $0.name == "VS Code" && { if case .failed = $0.status { true } else { false } }($0) })
+
+        fixture.runner.failing = []
+        _ = await fixture.engine.sync(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+        #expect(try fixture.text(fixture.paths.vscodeSettingsFile).contains("Soprano Dark"))
+    }
+
     @Test func aScreenWhoseSpaceIsUnknownIsNeverGivenTheWallpaper() async throws {
         let fixture = try Fixture()
         defer { try? FileManager.default.removeItem(at: fixture.home) }
@@ -248,5 +283,143 @@ struct DesktopEngineTests {
 
         #expect(fixture.desktop.shown(screen: "A", space: "1") == "beach.jpg")
         #expect(!fixture.engine.state.originals.keys.contains { $0.hasPrefix(WallpaperSetting.idPrefix) })
+    }
+
+    @Test func restoringAnUntouchedSettingsFileGivesItBackByteForByteIncludingATrailingComment() async throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        let original = "\u{FEFF}{\n  \"a\": 1,\n  \"b\": 2 // last one\n}"
+        try TextFile.write(original, to: fixture.paths.vscodeSettingsFile)
+
+        _ = await fixture.engine.apply(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+        #expect(try TextFile.read(fixture.paths.vscodeSettingsFile)?.contains("Soprano Dark") == true)
+        _ = await fixture.engine.restore(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+
+        #expect(try TextFile.read(fixture.paths.vscodeSettingsFile) == original)
+    }
+
+    @Test func afterTheUserEditedTheFileRestoreRevertsOnlySopranosKeysAndKeepsTheEdit() async throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        _ = await fixture.engine.apply(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+        let applied = try fixture.text(fixture.paths.ghosttyConfigFile)
+        try (applied + "cursor-style = bar\n").write(to: fixture.paths.ghosttyConfigFile, atomically: true, encoding: .utf8)
+
+        _ = await fixture.engine.restore(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+
+        #expect(try fixture.text(fixture.paths.ghosttyConfigFile) == "font-size = 14\ntheme = \"Gruvbox Dark\"\ncursor-style = bar\n")
+    }
+
+    @Test func aFileAppliedUnderAnotherEnvironmentIsStillRestoredFromItsOwnRecord() async throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        let cliConfig = fixture.home.appendingPathComponent("elsewhere/bat.conf")
+        try TextFile.write("--theme=TwoDark\n", to: cliConfig)
+        try TextFile.write("--theme=GitHub\n", to: fixture.paths.batConfigFile)
+        let cli = DesktopEngine(dependencies: .init(
+            paths: TargetPaths(home: fixture.home, environment: ["BAT_CONFIG_PATH": cliConfig.path]),
+            preferences: fixture.preferences,
+            desktop: fixture.desktop,
+            runner: fixture.runner,
+            apps: fixture.engine.dependencies.apps
+        ))
+
+        _ = await cli.apply(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+        _ = await fixture.engine.sync(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+        _ = await fixture.engine.restore(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+
+        #expect(try fixture.text(cliConfig) == "--theme=TwoDark\n")
+        #expect(try fixture.text(fixture.paths.batConfigFile) == "--theme=GitHub\n")
+    }
+
+    @Test func whileAnotherProcessHoldsTheStateLockTheAppBacksOffWithoutChangingAnything() async throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        let other = StateLock(url: fixture.paths.stateLockFile)
+        #expect(other.lock(wait: false))
+
+        let report = await fixture.engine.run(.apply, settings: .defaults, pair: TestPalettes.folio, appearance: .dark, waitForLock: false)
+        #expect(report == nil)
+        #expect(fixture.preferences.values["AppleAccentColor"] as? Int == -1)
+
+        other.unlock()
+        let retried = await fixture.engine.run(.apply, settings: .defaults, pair: TestPalettes.folio, appearance: .dark, waitForLock: false)
+        #expect(retried != nil)
+        #expect(fixture.preferences.values["AppleAccentColor"] as? Int == SystemAccent.orange.rawValue)
+    }
+
+    @Test func anUnreadableStateFileStopsEveryChangeAndIsLeftAsItIs() async throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        try TextFile.write("{ not json", to: fixture.paths.stateFile)
+
+        let report = await fixture.engine.apply(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+
+        #expect(report.count == 1)
+        #expect(fixture.preferences.values["AppleAccentColor"] as? Int == -1)
+        #expect(try fixture.text(fixture.paths.stateFile) == "{ not json")
+    }
+
+    @Test func whenStateCannotBeSavedNothingIsChanged() async throws {
+        let fixture = try Fixture()
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fixture.paths.supportDirectory.path)
+            try? FileManager.default.removeItem(at: fixture.home)
+        }
+        try FileManager.default.createDirectory(at: fixture.paths.supportDirectory, withIntermediateDirectories: true)
+        // The lock file must exist before the folder turns read-only.
+        FileManager.default.createFile(atPath: fixture.paths.stateLockFile.path, contents: nil)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: fixture.paths.supportDirectory.path)
+
+        _ = await fixture.engine.apply(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+
+        #expect(fixture.preferences.values["AppleAccentColor"] as? Int == -1)
+        #expect(try fixture.text(fixture.paths.ghosttyConfigFile).contains("Gruvbox Dark"))
+    }
+
+    @Test func theUsersWallpaperComesBackWithItsOwnFillColour() async throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        fixture.desktop.pictures["A:1"]?.fillColor = RGB(hex: "#112233")
+
+        _ = await fixture.engine.apply(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+        #expect(fixture.desktop.pictures["A:1"]?.fillColor == TestPalettes.ink.bgBase)
+        _ = await fixture.engine.restore(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+
+        #expect(fixture.desktop.pictures["A:1"]?.fillColor == RGB(hex: "#112233"))
+    }
+
+    @Test func aScreenWhoseCurrentWallpaperCannotBeReadIsLeftUnchanged() async throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        fixture.desktop.pictures["A:1"] = nil
+
+        _ = await fixture.engine.apply(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+
+        #expect(fixture.desktop.pictures["A:1"] == nil)
+        #expect(fixture.engine.state.originals["system.wallpaper:A:1"] == nil)
+    }
+
+    @Test func anOlderBatGetsTheThemeFilesButItsConfigIsNotSwitched() async throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        fixture.runner.batVersion = "bat 0.24.0"
+
+        _ = await fixture.engine.apply(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+
+        #expect(!FileManager.default.fileExists(atPath: fixture.paths.batConfigFile.path))
+        #expect(DesktopEngine.batVersion("bat 0.25.0 (abc)") == 25)
+    }
+
+    @Test func anExtensionTheUserUninstalledIsInstalledAgain() async throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        func installs() -> Int { fixture.runner.calls.filter { $0.contains("--install-extension") }.count }
+
+        _ = await fixture.engine.apply(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+        try FileManager.default.removeItem(at: fixture.paths.editorExtensionsDirectory(for: .vscode))
+        _ = await fixture.engine.sync(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+
+        #expect(installs() == 2)
     }
 }

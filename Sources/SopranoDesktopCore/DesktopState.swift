@@ -91,31 +91,46 @@ extension JSONValue: Codable {
     }
 }
 
-/// What a setting held before Soprano Desktop first changed it.
-public enum OriginalValue: Equatable, Sendable, Codable {
-    /// The key or line did not exist; restoring removes it.
-    case absent
-    case value(JSONValue)
-}
-
 /// Soprano Desktop's persisted state (`~/Library/Application Support/Soprano Desktop/state.json`).
 ///
-/// While `active`, every enabled setting is kept on the Soprano theme. `originals` holds what
-/// each changed setting held before the first change, keyed by the setting's id
-/// (`system.accentColor`, `ghostty:theme`, `vscode:workbench.colorTheme` …); it is written
-/// once per setting and survives re-applies, so Restore always returns to the user's own
-/// values, never to an earlier Soprano value.
+/// While `active`, every enabled setting is kept on the Soprano theme. `originals` holds, per
+/// setting id, what the setting held before the first change (its record: the value, or
+/// for a config file the whole text plus each key's value); it is written once per setting
+/// and survives re-applies, so Restore always returns to the user's own values, never to
+/// an earlier Soprano value. `written` holds the text Soprano Desktop last wrote to each
+/// config file, so Restore can tell an untouched file (put the original text back
+/// byte-for-byte) from one the user edited since (revert only Soprano's keys).
 public struct DesktopState: Equatable, Sendable, Codable {
     public var active: Bool
-    public var originals: [String: OriginalValue]
+    public var originals: [String: JSONValue]
+    public var written: [String: String]
     /// Content hash of the editor extension last installed per app (`vscode`, `cursor`), so
     /// it is rebuilt and reinstalled only when the theme changed.
     public var packages: [String: String]
 
-    public init(active: Bool = false, originals: [String: OriginalValue] = [:], packages: [String: String] = [:]) {
+    public init(
+        active: Bool = false,
+        originals: [String: JSONValue] = [:],
+        written: [String: String] = [:],
+        packages: [String: String] = [:]
+    ) {
         self.active = active
         self.originals = originals
+        self.written = written
         self.packages = packages
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case active, originals, written, packages
+    }
+
+    /// Keys added in later versions are optional, so an older state.json still loads.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        active = try container.decode(Bool.self, forKey: .active)
+        originals = try container.decode([String: JSONValue].self, forKey: .originals)
+        written = try container.decodeIfPresent([String: String].self, forKey: .written) ?? [:]
+        packages = try container.decodeIfPresent([String: String].self, forKey: .packages) ?? [:]
     }
 
     public static func decode(_ data: Data) throws -> DesktopState {

@@ -114,6 +114,9 @@ enum CLI {
     private static func printStatus(engine: DesktopEngine, settings: DesktopSettings, theme: ThemeCenter) {
         printThemeLine(theme)
         print("Applied: \(engine.state.active ? "yes" : "no")")
+        if let error = engine.stateError {
+            print("Problem: \(error). Nothing is changed until it is fixed.")
+        }
         let recorded = engine.state.originals.keys.sorted()
         print("Settings with a saved original: \(recorded.isEmpty ? "none" : recorded.joined(separator: ", "))")
         print("macOS:")

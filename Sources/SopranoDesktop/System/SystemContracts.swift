@@ -27,12 +27,14 @@ struct ScreenInfo: Equatable, Sendable {
     var scale: Double
 }
 
-/// What a screen shows: the picture and how it is scaled.
+/// What a screen shows: the picture and how it is scaled and padded.
 struct DesktopPicture: Equatable, Sendable {
     var url: URL
     /// `NSImageScaling.rawValue`; nil when macOS did not report it.
-    var scaling: Int?
-    var allowClipping: Bool?
+    var scaling: Int? = nil
+    var allowClipping: Bool? = nil
+    /// The colour around a picture that does not cover the screen.
+    var fillColor: RGB? = nil
 }
 
 /// The screens and their desktop pictures (NSWorkspace). Tests inject a fake.
@@ -40,7 +42,7 @@ struct DesktopPicture: Equatable, Sendable {
 protocol DesktopPictures: AnyObject {
     func screens() -> [ScreenInfo]
     func picture(forScreen id: String) -> DesktopPicture?
-    func setPicture(_ picture: DesktopPicture, fillColor: RGB?, forScreen id: String) throws
+    func setPicture(_ picture: DesktopPicture, forScreen id: String) throws
 }
 
 /// Runs a command-line tool. Tests inject a recorder.

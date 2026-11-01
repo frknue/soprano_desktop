@@ -34,6 +34,16 @@ struct TargetPaths: Sendable {
         supportDirectory.appendingPathComponent("state.json")
     }
 
+    /// Held while one process (the app or the CLI) syncs (`StateLock`).
+    var stateLockFile: URL {
+        supportDirectory.appendingPathComponent("state.lock")
+    }
+
+    /// Where the editor keeps installed extensions.
+    func editorExtensionsDirectory(for target: DesktopTarget) -> URL {
+        home.appendingPathComponent(target == .cursor ? ".cursor/extensions" : ".vscode/extensions", isDirectory: true)
+    }
+
     var wallpaperDirectory: URL {
         supportDirectory.appendingPathComponent("Wallpapers", isDirectory: true)
     }
@@ -54,8 +64,10 @@ struct TargetPaths: Sendable {
         }
     }
 
-    /// Ghostty reads `config.ghostty` or `config` from its XDG directory and from Application
-    /// Support; the first that exists is edited, else the XDG `config` is created.
+    /// Ghostty loads `config.ghostty` and `config` from its XDG directory, then from
+    /// Application Support, each later file overriding earlier ones; the last that exists
+    /// is edited so its `theme` line wins, else the XDG `config` is created. (Files pulled in
+    /// with `config-file` load after all of these and can still override it.)
     var ghosttyConfigFile: URL {
         let xdg = configHome.appendingPathComponent("ghostty", isDirectory: true)
         let support = applicationSupport.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
@@ -65,7 +77,7 @@ struct TargetPaths: Sendable {
             support.appendingPathComponent("config.ghostty"),
             support.appendingPathComponent("config"),
         ]
-        return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
+        return candidates.last { FileManager.default.fileExists(atPath: $0.path) }
             ?? xdg.appendingPathComponent("config")
     }
 

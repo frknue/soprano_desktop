@@ -43,30 +43,42 @@ per app. Everything it changes it can put back.
 
 ## Sync
 
-`DesktopEngine.sync(settings:pair:appearance:)` is the only path that changes anything.
+`DesktopEngine.run(_:settings:pair:appearance:waitForLock:)` (sync, apply, restore) is the
+only path that changes anything. It holds an exclusive `flock` on `state.lock` for the whole
+operation and re-reads state.json under it, so the CLI and the running app never
+interleave (the CLI waits; the app backs off and retries after a second). An unreadable
+state.json stops every change (it may hold originals) until it is fixed or removed.
 
-1. A registry lists every `ManagedSetting` with its theme value, or nil when it is not
-   wanted (not applied, switched off, app not installed):
+1. While applied, each enabled installed app gets its theme files first (written only when
+   the content changed). bat rebuilds its cache after a change and is only switched from
+   0.25 on; VS Code and Cursor get a rebuilt .vsix installed with their own CLI when the
+   content hash changed (`state.packages`) or the extension is missing from the editor's
+   extensions folder. An app whose themes failed is not switched (or is switched back).
+2. A registry lists every `ManagedSetting` with its theme value, or nil when it is not
+   wanted (not applied, switched off, app not installed, its themes failed):
    - `system.accentColor`, `system.highlightColor` (global defaults);
    - `system.wallpaper:<display uuid>:<space id>`, one per screen on its current Space
      (read through the private `CGSCopyManagedDisplaySpaces`; screens whose Space is
-     unknown or shows a fullscreen app are left alone). macOS keeps one picture per display
-     and Space, so each original is read on, and only written back to, its own Space;
+     unknown, that show a fullscreen app, or whose picture macOS does not report are left
+     alone). macOS keeps one picture per display and Space, so each original (with its
+     scaling and fill colour) is read on, and only written back to, its own Space;
      originals of Spaces not visible at Restore stay in `originals` and are put back the
      next time the app sees that Space. A display attached while applied gets its own
      original before the first write;
-   - `ghostty:theme` (`light:soprano-light,dark:soprano-dark`);
-   - `vscode:` / `cursor:` `window.autoDetectColorScheme`,
-     `workbench.preferredLightColorTheme`, `workbench.preferredDarkColorTheme`;
-   - `bat:theme` (`auto:system`), `bat:theme-light`, `bat:theme-dark`.
-2. Wanted: the current value is recorded in `state.originals[id]` the first time (saved
-   before the write), then the theme value is written if it differs.
-3. Not wanted but recorded: the original is written back and the record dropped. Restore
-   is `active = false` + sync; turning one switch off restores just that setting.
-4. While applied, each enabled installed app gets its theme files (written only when the
-   content changed). bat rebuilds its cache after a change; VS Code and Cursor get a
-   rebuilt .vsix installed with their own CLI when the content hash changed
-   (`state.packages`).
+   - `<app>:<file path>` for Soprano's keys in one config file: Ghostty `theme`
+     (`light:soprano-light,dark:soprano-dark`, in the last of Ghostty's config files that
+     exists), VS Code / Cursor `window.autoDetectColorScheme` and the preferred light/dark
+     themes, bat `--theme=auto:system` and `--theme-light/-dark`. The path is part of the
+     id, and the record carries path, format, the whole original text and each key's
+     value, so a file another process or environment applied is restored from its record.
+3. Wanted: the record is captured and saved the first time (if it cannot be saved,
+   nothing is written), then the theme value is written if it differs. For files the
+   written text is kept in `state.written`.
+4. Not wanted but recorded: put back and the record dropped. A config file that is
+   exactly what Soprano Desktop last wrote gets its original text back byte-for-byte (or
+   is removed if it did not exist); one the user edited since gets only Soprano's keys
+   reverted. Restore is `active = false` + sync; turning one switch off restores just
+   that setting.
 
 Theme files and the installed extension stay after Restore: they are inert once no
 setting selects them, and lines the user added by hand (Neovim, fzf) keep working.

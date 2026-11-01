@@ -9,11 +9,10 @@ import SopranoDesktopCore
 /// or Restore is never replaced by a plain sync (the latest Apply/Restore wins).
 @MainActor
 final class SyncCoordinator {
-    enum Operation {
-        case sync
-        case apply
-        case restore
-    }
+    typealias Operation = DesktopEngine.Operation
+
+    /// How long to wait before retrying while the CLI holds the state lock.
+    static let busyRetryDelay: Duration = .seconds(1)
 
     /// Posted by the CLI after `apply`/`restore`, so the running app re-reads state.json.
     static let stateChangedNotification = Notification.Name("com.soprano.desktop.state-changed")
@@ -66,15 +65,25 @@ final class SyncCoordinator {
         isRunning = true
         observers.notify(())
         Task { @MainActor in
-            let settings = settings.settings
-            let pair = theme.pair
-            let appearance = theme.appearance
-            switch operation {
-            case .sync: lastReport = await engine.sync(settings: settings, pair: pair, appearance: appearance)
-            case .apply: lastReport = await engine.apply(settings: settings, pair: pair, appearance: appearance)
-            case .restore: lastReport = await engine.restore(settings: settings, pair: pair, appearance: appearance)
-            }
+            // Never block the main thread on the lock: while the CLI holds it, retry later.
+            let report = await engine.run(
+                operation,
+                settings: settings.settings,
+                pair: theme.pair,
+                appearance: theme.appearance,
+                waitForLock: false
+            )
             isRunning = false
+            guard let report else {
+                if pending == nil || operation != .sync { pending = operation }
+                try? await Task.sleep(for: Self.busyRetryDelay)
+                if let next = pending {
+                    pending = nil
+                    request(next)
+                }
+                return
+            }
+            lastReport = report
             observers.notify(())
             if let next = pending {
                 pending = nil

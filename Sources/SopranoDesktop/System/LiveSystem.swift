@@ -62,11 +62,12 @@ final class LiveDesktopPictures: DesktopPictures {
         return DesktopPicture(
             url: url,
             scaling: (options[.imageScaling] as? NSNumber)?.intValue,
-            allowClipping: (options[.allowClipping] as? NSNumber)?.boolValue
+            allowClipping: (options[.allowClipping] as? NSNumber)?.boolValue,
+            fillColor: (options[.fillColor] as? NSColor).map(PaletteBridge.rgb)
         )
     }
 
-    func setPicture(_ picture: DesktopPicture, fillColor: RGB?, forScreen id: String) throws {
+    func setPicture(_ picture: DesktopPicture, forScreen id: String) throws {
         guard let screen = screen(id) else { return }
         var options: [NSWorkspace.DesktopImageOptionKey: Any] = [:]
         if let scaling = picture.scaling {
@@ -75,7 +76,7 @@ final class LiveDesktopPictures: DesktopPictures {
         if let allowClipping = picture.allowClipping {
             options[.allowClipping] = NSNumber(value: allowClipping)
         }
-        if let fillColor {
+        if let fillColor = picture.fillColor {
             options[.fillColor] = PaletteBridge.color(fillColor)
         }
         try NSWorkspace.shared.setDesktopImageURL(picture.url, for: screen, options: options)
@@ -125,29 +126,32 @@ enum PrivateSpaces {
     }
 }
 
-/// `Process`, awaited without blocking the main thread.
+/// `Process`, awaited without blocking the main thread. The output is drained while the
+/// process runs (a full pipe would otherwise block the tool and it would never exit).
 struct LiveProcessRunner: ProcessRunning {
     func run(_ executable: URL, _ arguments: [String]) async -> ProcessResult {
         await withCheckedContinuation { continuation in
-            let process = Process()
-            process.executableURL = executable
-            process.arguments = arguments
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = pipe
-            process.standardInput = FileHandle.nullDevice
-            process.terminationHandler = { process in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let process = Process()
+                process.executableURL = executable
+                process.arguments = arguments
+                let pipe = Pipe()
+                process.standardOutput = pipe
+                process.standardError = pipe
+                process.standardInput = FileHandle.nullDevice
+                do {
+                    try process.run()
+                } catch {
+                    continuation.resume(returning: ProcessResult(status: -1, output: error.localizedDescription))
+                    return
+                }
+                // EOF arrives when the process (and anything it spawned holding the pipe) exits.
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
                 continuation.resume(returning: ProcessResult(
                     status: process.terminationStatus,
                     output: String(decoding: data, as: UTF8.self)
                 ))
-            }
-            do {
-                try process.run()
-            } catch {
-                process.terminationHandler = nil
-                continuation.resume(returning: ProcessResult(status: -1, output: error.localizedDescription))
             }
         }
     }
