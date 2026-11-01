@@ -133,8 +133,13 @@ enum WallpaperRenderer {
 
 enum WallpaperError: Error, LocalizedError {
     case renderFailed
+    /// The screen no longer shows the Space the setting belongs to.
+    case spaceChanged
 
     var errorDescription: String? {
-        "The wallpaper could not be rendered."
+        switch self {
+        case .renderFailed: "The wallpaper could not be rendered."
+        case .spaceChanged: "The screen switched Spaces; the wallpaper is left for the next sync."
+        }
     }
 }

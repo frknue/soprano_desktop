@@ -12,18 +12,35 @@ private final class FakePreferences: GlobalPreferences {
     func postColorChange() { colorChanges += 1 }
 }
 
+/// Screens with a current Space each; macOS-like, one picture per screen and Space.
 @MainActor
 private final class FakeDesktop: DesktopPictures {
-    var pictures: [String: DesktopPicture] = ["1": DesktopPicture(url: URL(fileURLWithPath: "/Users/me/beach.jpg"), scaling: 3, allowClipping: true)]
+    /// Screen id → its current Space (nil: unknown).
+    var currentSpace: [String: String?] = ["A": "1"]
+    var pictures: [String: DesktopPicture] = ["A:1": FakeDesktop.picture("beach")]
 
-    func screens() -> [ScreenInfo] {
-        [ScreenInfo(id: "1", pixelWidth: 64, pixelHeight: 40, scale: 1)]
+    static func picture(_ name: String) -> DesktopPicture {
+        DesktopPicture(url: URL(fileURLWithPath: "/Users/me/\(name).jpg"), scaling: 3, allowClipping: true)
     }
 
-    func picture(forScreen id: String) -> DesktopPicture? { pictures[id] }
+    func shown(screen: String, space: String) -> String? {
+        pictures["\(screen):\(space)"]?.url.lastPathComponent
+    }
+
+    func screens() -> [ScreenInfo] {
+        currentSpace.keys.sorted().map { id in
+            ScreenInfo(id: id, name: "Screen \(id)", spaceID: currentSpace[id] ?? nil, pixelWidth: 64, pixelHeight: 40, scale: 1)
+        }
+    }
+
+    func picture(forScreen id: String) -> DesktopPicture? {
+        guard let space = currentSpace[id] ?? nil else { return nil }
+        return pictures["\(id):\(space)"]
+    }
 
     func setPicture(_ picture: DesktopPicture, fillColor: RGB?, forScreen id: String) throws {
-        pictures[id] = picture
+        guard let space = currentSpace[id] ?? nil else { return }
+        pictures["\(id):\(space)"] = picture
     }
 }
 
@@ -101,7 +118,7 @@ struct DesktopEngineTests {
 
         #expect(fixture.preferences.values["AppleAccentColor"] as? Int == SystemAccent.orange.rawValue)
         #expect(fixture.preferences.values["AppleHighlightColor"] as? String == SystemHighlight.value(for: TestPalettes.ink.terminal.selectionBackground))
-        #expect(fixture.desktop.pictures["1"]?.url.lastPathComponent.contains("folio-ink") == true)
+        #expect(fixture.desktop.shown(screen: "A", space: "1")?.contains("folio-ink") == true)
         #expect(try fixture.text(fixture.paths.ghosttyConfigFile).contains("theme = \(GhosttyTheme.themeSetting)"))
         let vscode = try fixture.text(fixture.paths.vscodeSettingsFile)
         #expect(vscode.contains("\"workbench.preferredDarkColorTheme\": \"Soprano Dark\""))
@@ -113,7 +130,7 @@ struct DesktopEngineTests {
 
         #expect(fixture.preferences.values["AppleAccentColor"] as? Int == -1)
         #expect(fixture.preferences.values["AppleHighlightColor"] as? String == "0.000000 0.340099 0.514652 Other")
-        #expect(fixture.desktop.pictures["1"]?.url.path == "/Users/me/beach.jpg")
+        #expect(fixture.desktop.shown(screen: "A", space: "1") == "beach.jpg")
         #expect(try fixture.text(fixture.paths.ghosttyConfigFile) == originalGhostty)
         #expect(try fixture.text(fixture.paths.vscodeSettingsFile) == originalVSCode)
         #expect(fixture.engine.state == DesktopState(active: false, originals: [:], packages: fixture.engine.state.packages))
@@ -184,5 +201,52 @@ struct DesktopEngineTests {
         #expect(try fixture.text(fixture.paths.ghosttyConfigFile) == ghostty)
         #expect(fixture.runner.calls.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: fixture.paths.themeRoot(for: .ghostty).appendingPathComponent("themes").path))
+    }
+
+    @Test func eachSpaceGetsItsOwnWallpaperBackEvenWhenRestoredFromAnotherSpace() async throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        fixture.desktop.pictures["A:2"] = FakeDesktop.picture("forest")
+
+        _ = await fixture.engine.apply(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+        fixture.desktop.currentSpace["A"] = "2"
+        _ = await fixture.engine.sync(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+        #expect(fixture.desktop.shown(screen: "A", space: "2")?.contains("folio-ink") == true)
+
+        _ = await fixture.engine.restore(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+        #expect(fixture.desktop.shown(screen: "A", space: "2") == "forest.jpg")
+        #expect(fixture.desktop.shown(screen: "A", space: "1")?.contains("folio-ink") == true)
+        #expect(fixture.engine.state.originals.keys.contains("system.wallpaper:A:1"))
+
+        fixture.desktop.currentSpace["A"] = "1"
+        _ = await fixture.engine.sync(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+        #expect(fixture.desktop.shown(screen: "A", space: "1") == "beach.jpg")
+        #expect(fixture.engine.state.originals.isEmpty)
+    }
+
+    @Test func aScreenAttachedWhileAppliedKeepsItsOwnOriginal() async throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        _ = await fixture.engine.apply(settings: .defaults, pair: TestPalettes.folio, appearance: .light)
+
+        fixture.desktop.currentSpace["B"] = "7"
+        fixture.desktop.pictures["B:7"] = FakeDesktop.picture("mountain")
+        _ = await fixture.engine.sync(settings: .defaults, pair: TestPalettes.folio, appearance: .light)
+        #expect(fixture.desktop.shown(screen: "B", space: "7")?.contains("folio-paper") == true)
+
+        _ = await fixture.engine.restore(settings: .defaults, pair: TestPalettes.folio, appearance: .light)
+        #expect(fixture.desktop.shown(screen: "B", space: "7") == "mountain.jpg")
+        #expect(fixture.desktop.shown(screen: "A", space: "1") == "beach.jpg")
+    }
+
+    @Test func aScreenWhoseSpaceIsUnknownIsNeverGivenTheWallpaper() async throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        fixture.desktop.currentSpace["A"] = .some(nil)
+
+        _ = await fixture.engine.apply(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+
+        #expect(fixture.desktop.shown(screen: "A", space: "1") == "beach.jpg")
+        #expect(!fixture.engine.state.originals.keys.contains { $0.hasPrefix(WallpaperSetting.idPrefix) })
     }
 }

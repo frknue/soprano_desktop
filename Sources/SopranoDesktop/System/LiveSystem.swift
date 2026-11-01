@@ -35,15 +35,20 @@ final class LiveGlobalPreferences: GlobalPreferences {
 }
 
 /// Screens and desktop pictures through NSScreen and NSWorkspace. macOS sets a picture on
-/// the current Space of each screen.
+/// the current Space of each screen; the current Space comes from the private
+/// `CGSCopyManagedDisplaySpaces` (resolved with `dlsym`, so a macOS without it gives nil
+/// Spaces and the wallpaper is left alone).
 @MainActor
 final class LiveDesktopPictures: DesktopPictures {
     func screens() -> [ScreenInfo] {
-        NSScreen.screens.compactMap { screen in
+        let spaces = CurrentSpaces.parse(PrivateSpaces.managedDisplaySpaces())
+        return NSScreen.screens.compactMap { screen in
             guard let id = Self.id(of: screen) else { return nil }
             let size = screen.convertRectToBacking(screen.frame).size
             return ScreenInfo(
                 id: id,
+                name: screen.localizedName,
+                spaceID: CurrentSpaces.space(forDisplay: id, in: spaces),
                 pixelWidth: Int(size.width.rounded()),
                 pixelHeight: Int(size.height.rounded()),
                 scale: Double(screen.backingScaleFactor)
@@ -80,8 +85,43 @@ final class LiveDesktopPictures: DesktopPictures {
         NSScreen.screens.first { Self.id(of: $0) == id }
     }
 
+    /// The display's UUID (what CGSCopyManagedDisplaySpaces calls "Display Identifier").
     private static func id(of screen: NSScreen) -> String? {
-        (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber).map { "\($0.uint32Value)" }
+        guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
+              let uuid = CGDisplayCreateUUIDFromDisplayID(number.uint32Value)?.takeRetainedValue()
+        else { return nil }
+        return CFUUIDCreateString(nil, uuid) as String
+    }
+}
+
+/// The one private SkyLight call Soprano Desktop makes, resolved at first use.
+enum PrivateSpaces {
+    private typealias MainConnectionIDFn = @convention(c) () -> Int32
+    private typealias CopyManagedDisplaySpacesFn = @convention(c) (Int32) -> Unmanaged<CFArray>?
+
+    private struct Symbols: @unchecked Sendable {
+        let mainConnectionID: MainConnectionIDFn?
+        let copyManagedDisplaySpaces: CopyManagedDisplaySpacesFn?
+    }
+
+    private static let symbols: Symbols = {
+        let skyLight = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY)
+        func load<T>(_ name: String) -> T? {
+            dlsym(skyLight, name).map { unsafeBitCast($0, to: T.self) }
+        }
+        return Symbols(
+            mainConnectionID: load("CGSMainConnectionID"),
+            copyManagedDisplaySpaces: load("CGSCopyManagedDisplaySpaces")
+        )
+    }()
+
+    /// [] when the symbols are missing.
+    static func managedDisplaySpaces() -> [[String: Any]] {
+        guard let connection = symbols.mainConnectionID?(),
+              let function = symbols.copyManagedDisplaySpaces,
+              let array = function(connection)?.takeRetainedValue() as? [[String: Any]]
+        else { return [] }
+        return array
     }
 }
 

@@ -58,12 +58,10 @@ final class DesktopEngine {
 
     let dependencies: Dependencies
     private(set) var state: DesktopState
-    private let wallpaper: WallpaperSetting
 
     init(dependencies: Dependencies) {
         self.dependencies = dependencies
         self.state = Self.loadState(at: dependencies.paths.stateFile)
-        self.wallpaper = WallpaperSetting(desktop: dependencies.desktop)
     }
 
     var paths: TargetPaths { dependencies.paths }
@@ -153,8 +151,12 @@ final class DesktopEngine {
                                  key: "AppleHighlightColor", preferences: preferences),
             wants(.highlightColor) ? .string(SystemHighlight.value(for: SystemHighlight.color(for: palette))) : nil
         ))
-        wallpaper.fillColor = palette.bgBase
-        entries.append((wallpaper, wants(.wallpaper) ? wallpaperValue(for: palette) : nil))
+        // One entry per screen on its current Space. Recorded originals of Spaces not
+        // visible now are not in the registry, so they stay recorded until their Space is.
+        for screen in dependencies.desktop.screens() {
+            guard let setting = WallpaperSetting(screen: screen, desktop: dependencies.desktop, fillColor: palette.bgBase) else { continue }
+            entries.append((setting, wants(.wallpaper) ? wallpaperValue(for: palette, screen: screen) : nil))
+        }
 
         entries.append((
             LineFileSetting(id: "ghostty:theme", label: "Ghostty theme", file: paths.ghosttyConfigFile,
@@ -217,25 +219,22 @@ final class DesktopEngine {
         }
     }
 
-    /// Every screen on the palette's wallpaper, rendered at its pixel size.
-    private func wallpaperValue(for palette: Palette) -> JSONValue? {
-        var screens: [String: JSONValue] = [:]
-        for screen in dependencies.desktop.screens() {
-            do {
-                let url = try WallpaperRenderer.render(
-                    palette,
-                    pixelWidth: screen.pixelWidth,
-                    pixelHeight: screen.pixelHeight,
-                    scale: screen.scale,
-                    into: paths.wallpaperDirectory
-                )
-                let picture = DesktopPicture(url: url, scaling: 3 /* NSImageScaling.scaleProportionallyUpOrDown */, allowClipping: true)
-                screens[screen.id] = WallpaperSetting.json(picture)
-            } catch {
-                engineLog.error("Wallpaper for screen \(screen.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            }
+    /// The palette's wallpaper rendered at the screen's pixel size; nil when rendering failed.
+    private func wallpaperValue(for palette: Palette, screen: ScreenInfo) -> JSONValue? {
+        do {
+            let url = try WallpaperRenderer.render(
+                palette,
+                pixelWidth: screen.pixelWidth,
+                pixelHeight: screen.pixelHeight,
+                scale: screen.scale,
+                into: paths.wallpaperDirectory
+            )
+            let picture = DesktopPicture(url: url, scaling: 3 /* NSImageScaling.scaleProportionallyUpOrDown */, allowClipping: true)
+            return WallpaperSetting.json(picture)
+        } catch {
+            engineLog.error("Wallpaper for \(screen.name, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return nil
         }
-        return screens.isEmpty ? nil : .object(screens)
     }
 
     // MARK: Theme files

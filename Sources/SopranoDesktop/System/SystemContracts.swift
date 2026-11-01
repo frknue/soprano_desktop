@@ -12,8 +12,14 @@ protocol GlobalPreferences: AnyObject {
 
 /// One screen as the wallpaper code needs it.
 struct ScreenInfo: Equatable, Sendable {
-    /// `CGDirectDisplayID`, as a string key for state.json.
+    /// The display's UUID: stable across reconnects, unlike its `CGDirectDisplayID`.
     var id: String
+    /// `localizedName`, for messages.
+    var name: String
+    /// The desktop Space the screen shows now; nil when unknown (the private Spaces API is
+    /// missing) or when it shows a fullscreen app. The wallpaper is only touched where this
+    /// is known, because macOS keeps one picture per Space.
+    var spaceID: String?
     /// Backing pixels.
     var pixelWidth: Int
     var pixelHeight: Int

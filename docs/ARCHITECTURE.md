@@ -47,8 +47,14 @@ per app. Everything it changes it can put back.
 
 1. A registry lists every `ManagedSetting` with its theme value, or nil when it is not
    wanted (not applied, switched off, app not installed):
-   - `system.accentColor`, `system.highlightColor` (global defaults), `system.wallpaper`
-     (every screen's picture as one JSON object);
+   - `system.accentColor`, `system.highlightColor` (global defaults);
+   - `system.wallpaper:<display uuid>:<space id>`, one per screen on its current Space
+     (read through the private `CGSCopyManagedDisplaySpaces`; screens whose Space is
+     unknown or shows a fullscreen app are left alone). macOS keeps one picture per display
+     and Space, so each original is read on, and only written back to, its own Space;
+     originals of Spaces not visible at Restore stay in `originals` and are put back the
+     next time the app sees that Space. A display attached while applied gets its own
+     original before the first write;
    - `ghostty:theme` (`light:soprano-light,dark:soprano-dark`);
    - `vscode:` / `cursor:` `window.autoDetectColorScheme`,
      `workbench.preferredLightColorTheme`, `workbench.preferredDarkColorTheme`;

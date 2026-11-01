@@ -32,8 +32,11 @@ Chrome: `chrome://extensions` → Developer mode → Load unpacked →
 `~/.config/soprano-desktop/chrome/soprano-dark` (or `soprano-light`).
 
 After Apply, use Reload Window in VS Code/Cursor and reload Ghostty's config (⌘⇧,).
-macOS sets a wallpaper per Space; each Space gets it when you first visit it while Soprano
-Desktop runs. Keep it running (Launch at Login) so light/dark switches are followed.
+macOS keeps a wallpaper per screen and Space; each Space gets the Folio one when you first
+visit it while Soprano Desktop runs, and Restore puts each Space's own wallpaper back —
+Spaces you are not on at that moment get theirs back when you next visit them (keep the
+app running for that). Keep it running (Launch at Login) so light/dark switches are
+followed too.
 
 What macOS does not allow without turning off System Integrity Protection (other apps'
 window chrome, the Dock, the system font) is out of scope; see `docs/ROADMAP.md`.

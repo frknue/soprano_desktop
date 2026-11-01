@@ -106,33 +106,50 @@ final class JSONCFileSetting: ManagedSetting {
     }
 }
 
-/// Every screen's desktop picture, as one value: `{ "<display id>": { "url", "scaling",
-/// "allowClipping" } }`. Screens missing when restoring are skipped.
+/// One screen's desktop picture on one Space: `{ "url", "scaling", "allowClipping" }`.
+///
+/// macOS keeps a picture per display and Space and only exposes the current one, so the id
+/// names both (`system.wallpaper:<display uuid>:<space id>`). An original is read on, and
+/// only ever written back to, the Space it came from: writes check that the screen still
+/// shows that Space. Originals of Spaces not visible at Restore stay in `state.originals`
+/// and are put back the next time their Space is visible.
 final class WallpaperSetting: ManagedSetting {
-    let id = "system.wallpaper"
-    let label = SystemSetting.wallpaper.displayName
+    static let idPrefix = "system.wallpaper:"
+
+    let id: String
+    let label: String
+    private let screen: ScreenInfo
+    private let spaceID: String
     private let desktop: DesktopPictures
     /// The colour macOS fills around a picture that does not cover the screen.
-    var fillColor: RGB?
+    private let fillColor: RGB?
 
-    init(desktop: DesktopPictures) {
+    /// nil when the screen's Space is unknown: such a screen is never touched.
+    init?(screen: ScreenInfo, desktop: DesktopPictures, fillColor: RGB?) {
+        guard let spaceID = screen.spaceID else { return nil }
+        self.id = "\(Self.idPrefix)\(screen.id):\(spaceID)"
+        self.label = "\(SystemSetting.wallpaper.displayName) (\(screen.name))"
+        self.screen = screen
+        self.spaceID = spaceID
         self.desktop = desktop
+        self.fillColor = fillColor
     }
 
     func read() throws -> OriginalValue {
-        var screens: [String: JSONValue] = [:]
-        for screen in desktop.screens() {
-            screens[screen.id] = desktop.picture(forScreen: screen.id).map(Self.json) ?? .null
-        }
-        return .value(.object(screens))
+        try ensureOnSpace()
+        return desktop.picture(forScreen: screen.id).map { .value(Self.json($0)) } ?? .absent
     }
 
+    /// `.absent` (macOS reported no picture URL) cannot be put back and is a no-op.
     func write(_ value: OriginalValue) throws {
-        guard case let .value(.object(screens)) = value else { return }
-        let present = Set(desktop.screens().map(\.id))
-        for (id, entry) in screens.sorted(by: { $0.key < $1.key }) where present.contains(id) {
-            guard let picture = Self.picture(entry) else { continue }
-            try desktop.setPicture(picture, fillColor: fillColor, forScreen: id)
+        guard case let .value(json) = value, let picture = Self.picture(json) else { return }
+        try ensureOnSpace()
+        try desktop.setPicture(picture, fillColor: fillColor, forScreen: screen.id)
+    }
+
+    private func ensureOnSpace() throws {
+        guard desktop.screens().contains(where: { $0.id == screen.id && $0.spaceID == spaceID }) else {
+            throw WallpaperError.spaceChanged
         }
     }
 

@@ -120,6 +120,10 @@ enum CLI {
         for setting in SystemSetting.allCases {
             print("  \(setting.displayName): \(settings.system.contains(setting) ? "on" : "off")")
         }
+        print("Screens (the wallpaper is set per screen and Space):")
+        for screen in engine.dependencies.desktop.screens() {
+            print("  \(screen.name): Space \(screen.spaceID ?? "unknown — wallpaper left alone")")
+        }
         print("Apps:")
         for target in DesktopTarget.allCases {
             var line = "  \(target.displayName): \(settings.apps.contains(target) ? "on" : "off")"
@@ -150,7 +154,8 @@ enum CLI {
         }
         let wallpapers = directory.appendingPathComponent("wallpapers", isDirectory: true)
         let screens = LiveDesktopPictures().screens()
-        let sizes = screens.isEmpty ? [ScreenInfo(id: "0", pixelWidth: 3024, pixelHeight: 1964, scale: 2)] : screens
+        let fallback = ScreenInfo(id: "0", name: "Built-in", spaceID: nil, pixelWidth: 3024, pixelHeight: 1964, scale: 2)
+        let sizes = screens.isEmpty ? [fallback] : screens
         for palette in [pair.light, pair.dark] {
             for screen in sizes {
                 let url = try WallpaperRenderer.render(
