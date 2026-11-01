@@ -254,7 +254,8 @@ final class DesktopEngine {
     private func reconcile(_ setting: ManagedSetting, desired: JSONValue?) -> Status {
         do {
             if let desired {
-                if state.originals[setting.id] == nil {
+                let firstWrite = state.originals[setting.id] == nil
+                if firstWrite {
                     // Recorded and saved before the first write; if it cannot be saved, the
                     // setting is not changed.
                     state.originals[setting.id] = try setting.capture(for: desired)
@@ -264,10 +265,15 @@ final class DesktopEngine {
                     }
                 }
                 if try setting.matches(desired) { return .unchanged }
-                if let written = try setting.apply(desired) {
-                    state.written[setting.id] = written
-                    _ = saveState()
-                }
+                // Whole-file restore stays valid only while the file is exactly the original
+                // (first write) or exactly what Soprano Desktop last wrote. Once the user
+                // changed it in between, a later restore must revert only Soprano's keys, or
+                // it would drop their edits; `written` is cleared for good.
+                let before = try setting.contents()
+                let untouched = firstWrite || (state.written[setting.id] != nil && before == state.written[setting.id])
+                let written = try setting.apply(desired)
+                state.written[setting.id] = untouched ? written : nil
+                _ = saveState()
                 return .applied
             }
             guard let original = state.originals[setting.id] else { return .skipped("not applied") }

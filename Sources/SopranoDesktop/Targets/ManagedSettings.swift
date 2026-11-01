@@ -17,6 +17,12 @@ protocol ManagedSetting: AnyObject {
     func apply(_ desired: JSONValue) throws -> String?
     /// Puts the captured record back. `written` is what `apply` last wrote, if anything.
     func restore(_ original: JSONValue, written: String?) throws
+    /// The file's current text, for settings that live in a file; nil otherwise.
+    func contents() throws -> String?
+}
+
+extension ManagedSetting {
+    func contents() throws -> String? { nil }
 }
 
 /// A key of the global preferences domain. The record is the value, or `null` when the key
@@ -114,6 +120,10 @@ final class ConfigFileSetting: ManagedSetting {
             "text": text.map(JSONValue.string) ?? .null,
             "keys": .object(keys),
         ])
+    }
+
+    func contents() throws -> String? {
+        try TextFile.read(file)
     }
 
     func matches(_ desired: JSONValue) throws -> Bool {

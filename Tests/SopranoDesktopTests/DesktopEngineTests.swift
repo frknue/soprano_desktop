@@ -298,6 +298,20 @@ struct DesktopEngineTests {
         #expect(try TextFile.read(fixture.paths.vscodeSettingsFile) == original)
     }
 
+    @Test func anEditFollowedByAReapplyIsStillKeptByRestore() async throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        _ = await fixture.engine.apply(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+        // The user changes the font size and the theme; the next sync puts the theme back.
+        try "font-size = 16\ntheme = Nord\n".write(to: fixture.paths.ghosttyConfigFile, atomically: true, encoding: .utf8)
+        _ = await fixture.engine.sync(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+        #expect(try fixture.text(fixture.paths.ghosttyConfigFile) == "font-size = 16\ntheme = \(GhosttyTheme.themeSetting)\n")
+
+        _ = await fixture.engine.restore(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+
+        #expect(try fixture.text(fixture.paths.ghosttyConfigFile) == "font-size = 16\ntheme = \"Gruvbox Dark\"\n")
+    }
+
     @Test func afterTheUserEditedTheFileRestoreRevertsOnlySopranosKeysAndKeepsTheEdit() async throws {
         let fixture = try Fixture()
         defer { try? FileManager.default.removeItem(at: fixture.home) }

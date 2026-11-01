@@ -77,8 +77,10 @@ state.json stops every change (it may hold originals) until it is fixed or remov
 4. Not wanted but recorded: put back and the record dropped. A config file that is
    exactly what Soprano Desktop last wrote gets its original text back byte-for-byte (or
    is removed if it did not exist); one the user edited since gets only Soprano's keys
-   reverted. Restore is `active = false` + sync; turning one switch off restores just
-   that setting.
+   reverted. Whole-file restore is dropped for good (`written` cleared) the moment a
+   re-apply finds the file differing from what was last written, so an edit followed by a
+   re-apply is never rolled back. Restore is `active = false` + sync; turning one switch
+   off restores just that setting.
 
 Theme files and the installed extension stay after Restore: they are inert once no
 setting selects them, and lines the user added by hand (Neovim, fzf) keep working.
