@@ -50,11 +50,9 @@ public enum SettingsTemplate {
         "hideMenuBar": false
       },
 
-      // Surfaces Soprano Desktop draws itself. Both need Accessibility permission
+      // Surfaces Soprano Desktop draws itself; they need Accessibility permission
       // (System Settings → Privacy & Security → Accessibility → Soprano Desktop).
       "surfaces": {
-        // A 2-pt accent rule around the focused window.
-        "focusBorder": true,
         // A Folio strip over the app menus of the menu bar; status items stay native.
         "menuBar": true
       },

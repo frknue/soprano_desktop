@@ -18,8 +18,8 @@ are the template for layout, scripts and conventions:
   `Sources/SopranoDesktop/System/` the only code that touches macOS (CFPreferences,
   NSWorkspace, processes, SkyLight's icon appearance), behind the protocols in
   `System/SystemContracts.swift` and the store protocols next to them.
-- `Sources/SopranoDesktop/Surfaces/`: the focus border and the Folio menu bar strip
-  (Accessibility API); geometry in Core's `SurfaceGeometry.swift`.
+- `Sources/SopranoDesktop/Surfaces/`: the Folio menu bar strip (Accessibility API);
+  geometry in Core's `SurfaceGeometry.swift`.
 - `Saver/`: the Soprano screen saver, built by `scripts/build-saver.sh` (called by
   `dev.sh`/`install.sh`) and packaged into `Contents/Resources/Soprano.saver`.
 - Chrome, `Theme.swift` and `JSONCText` are vendored from Soprano
@@ -44,7 +44,7 @@ swift build
 swift test
 .build/debug/SopranoDesktop status            # read-only
 .build/debug/SopranoDesktop export /tmp/sd    # every theme file, the .vsix, wallpapers; changes nothing else
-.build/debug/SopranoDesktop snapshot-surfaces --out /tmp/sds   # Folio menu bar + focus border PNGs, Paper and Ink
+.build/debug/SopranoDesktop snapshot-surfaces --out /tmp/sds   # Folio menu bar PNGs, Paper and Ink
 ./scripts/build-saver.sh debug                # .build/debug/Soprano.saver
 ./scripts/render-app-icon.sh [png]            # AppIcon.icns
 ./scripts/dev.sh --build-only                 # .build/debug/Soprano Desktop Dev.app

@@ -96,3 +96,11 @@ struct FolioMenuBarLayoutTests {
         }
     }
 }
+
+/// Whether two colours match in sRGB within `tolerance` per channel.
+private func matches(_ lhs: NSColor, _ rhs: NSColor, tolerance: CGFloat = 0.03) -> Bool {
+    guard let a = lhs.usingColorSpace(.sRGB), let b = rhs.usingColorSpace(.sRGB) else { return false }
+    return abs(a.redComponent - b.redComponent) <= tolerance
+        && abs(a.greenComponent - b.greenComponent) <= tolerance
+        && abs(a.blueComponent - b.blueComponent) <= tolerance
+}

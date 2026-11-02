@@ -58,14 +58,11 @@ public enum DesktopBehavior: String, CaseIterable, Sendable {
 
 /// Surfaces Soprano Desktop draws itself (`surfaces.*`); they need Accessibility.
 public enum Surface: String, CaseIterable, Sendable {
-    /// A 2-pt accent rule around the focused window.
-    case focusBorder
     /// A Folio strip over the app-menu part of the menu bar.
     case menuBar
 
     public var displayName: String {
         switch self {
-        case .focusBorder: "Focus border"
         case .menuBar: "Folio menu bar"
         }
     }

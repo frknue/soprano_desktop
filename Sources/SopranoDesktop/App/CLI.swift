@@ -17,7 +17,7 @@ enum CLI {
       export <dir>    Write every theme file, the editor extension and the wallpapers into
                       <dir>, without changing anything else.
       snapshot-surfaces --out <dir>
-                      Render the Folio menu bar and focus border offscreen to PNGs.
+                      Render the Folio menu bar offscreen to PNGs.
       version         Print the version.
 
     Settings: ~/.config/soprano-desktop/settings.json (SOPRANO_DESKTOP_CONFIG overrides).

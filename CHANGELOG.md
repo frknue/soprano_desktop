@@ -16,5 +16,5 @@ All notable changes to Soprano Desktop are documented here. The format follows
 - Folio icons on Home, Desktop, Documents and Downloads; folders with an icon of their own are left alone (`system.folderIcons`).
 - A soft Folio alert sound (`system.alertSound`) and the Soprano screen saver with paper, clock and date, picked once in System Settings → Screen Saver (`system.screenSaver`).
 - Calmer desktop: hidden desktop icons and no recent apps in the Dock, optionally an auto-hiding menu bar (`desktop.*`).
-- Focus border: a 2-pt accent rule around the focused window, and a Folio strip over the app menus of the menu bar (`surfaces.*`, need Accessibility).
+- Folio menu bar: a Folio strip over the app menus of the menu bar (`surfaces.menuBar`, needs Accessibility).
 - `SopranoDesktop apply | restore | status | export <dir> | snapshot-surfaces` on the command line.

@@ -2,7 +2,7 @@ import AppKit
 import ApplicationServices
 
 /// Accessibility permission (System Settings → Privacy & Security → Accessibility), which
-/// the focus border and the Folio menu bar need to read window frames and menu bars.
+/// the Folio menu bar needs to read menu bars.
 enum AccessibilityPermission {
     /// Whether this process may use the Accessibility API.
     static var isTrusted: Bool {

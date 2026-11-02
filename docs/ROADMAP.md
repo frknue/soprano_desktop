@@ -4,15 +4,12 @@ What Soprano Desktop deliberately leaves out, in the order it would come.
 
 ## Surfaces, next steps
 
-The focus border and the Folio menu bar strip are built (`Sources/SopranoDesktop/Surfaces/`).
-Left out:
+The Folio menu bar strip is built (`Sources/SopranoDesktop/Surfaces/`). Left out:
 
 - Folio menu bar over the whole bar: the strip covers only the app menus; status items stay
   native (other apps draw them; there is no API to reparent them). A full replacement would
   need the system menu bar auto-hidden, and windows would then extend under the strip
   (no API reserves screen space for a third-party bar).
-- Focus border corner radius per window: macOS 26+ windows have different radii; the
-  border uses one configurable radius.
 - Optional launcher replacing the Dock (or hand the job to Soprano Cast).
 - A screen-saver thumbnail for the System Settings picker.
 

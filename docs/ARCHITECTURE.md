@@ -120,18 +120,18 @@ Apply/Restore is never replaced by a plain sync.
 ## Surfaces
 
 Drawn by Soprano Desktop itself while applied and switched on (`AppDelegate.updateSurfaces`);
-both need Accessibility and wait for it (`AccessibilityTrustWatcher` polls every 2 s).
+it needs Accessibility and waits for it (`AccessibilityTrustWatcher` polls every 2 s).
 
-- `FocusBorderController`: an `AXObserver` on the frontmost app (focused window changed,
-  moved, resized, minimised, destroyed) places a click-through panel with a 2-pt accent rule
-  around the focused standard window; hidden in fullscreen and for Soprano Desktop itself.
 - `FolioMenuBarController`: a Folio strip over the app-menu part of each visible menu bar.
   Titles come from the frontmost app's `AXMenuBar` and are drawn at the native items' x
   positions, so a click (`AXPress` on the real item) opens the native menu in place. The
   strip ends left of the leftmost status item, found through Quartz status-level windows,
   else every app's `AXExtrasMenuBar`, else 55 % of the width. Off while `hideMenuBar` is on.
 - Geometry (AX top-left ↔ AppKit bottom-left, strip width, title placement) is pure, in
-  Core's `SurfaceGeometry.swift`; `snapshot-surfaces` renders both views offscreen.
+  Core's `SurfaceGeometry.swift`; `snapshot-surfaces` renders the strip offscreen.
+
+A focus border around the focused window was built and removed (2026-11-02): it did not
+look right on macOS's window shapes.
 
 ## Files
 
