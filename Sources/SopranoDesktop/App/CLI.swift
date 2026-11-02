@@ -5,7 +5,7 @@ import SopranoDesktopCore
 /// `apply` and `restore` it tells a running Soprano Desktop to re-read its state.
 @MainActor
 enum CLI {
-    static let commands: Set<String> = ["apply", "restore", "status", "export", "help", "--help", "-h", "version", "--version"]
+    static let commands: Set<String> = ["apply", "restore", "status", "export", "snapshot-surfaces", "help", "--help", "-h", "version", "--version"]
 
     static let usage = """
     Usage: SopranoDesktop <command>
@@ -16,6 +16,8 @@ enum CLI {
       status          The theme, whether it is applied, and every app's state.
       export <dir>    Write every theme file, the editor extension and the wallpapers into
                       <dir>, without changing anything else.
+      snapshot-surfaces --out <dir>
+                      Render the Folio menu bar and focus border offscreen to PNGs.
       version         Print the version.
 
     Settings: ~/.config/soprano-desktop/settings.json (SOPRANO_DESKTOP_CONFIG overrides).
@@ -44,6 +46,10 @@ enum CLI {
             return 0
         default:
             break
+        }
+
+        if command == "snapshot-surfaces" {
+            return SurfaceSnapshotCommand.run(arguments: Array(arguments.dropFirst()))
         }
 
         let settings = SettingsCenter.shared
@@ -121,7 +127,19 @@ enum CLI {
         print("Settings with a saved original: \(recorded.isEmpty ? "none" : recorded.joined(separator: ", "))")
         print("macOS:")
         for setting in SystemSetting.allCases {
-            print("  \(setting.displayName): \(settings.system.contains(setting) ? "on" : "off")")
+            var line = "  \(setting.displayName): \(settings.system.contains(setting) ? "on" : "off")"
+            if setting == .screenSaver {
+                line += "; select \"Soprano\" once in System Settings → Screen Saver"
+            }
+            print(line)
+        }
+        print("Desktop:")
+        for behavior in DesktopBehavior.allCases {
+            print("  \(behavior.displayName): \(settings.desktop.contains(behavior) ? "on" : "off")")
+        }
+        print("Surfaces (Accessibility \(AccessibilityPermission.isTrusted ? "allowed" : "not allowed yet")):")
+        for surface in Surface.allCases {
+            print("  \(surface.displayName): \(settings.surfaces.contains(surface) ? "on" : "off")")
         }
         print("Screens (the wallpaper is set per screen and Space):")
         for screen in engine.dependencies.desktop.screens() {

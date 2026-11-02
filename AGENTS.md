@@ -16,7 +16,12 @@ are the template for layout, scripts and conventions:
 
 - `Sources/SopranoDesktopCore/` pure logic, Foundation only, everything `public`;
   `Sources/SopranoDesktop/System/` the only code that touches macOS (CFPreferences,
-  NSWorkspace, processes), behind the protocols in `System/SystemContracts.swift`.
+  NSWorkspace, processes, SkyLight's icon appearance), behind the protocols in
+  `System/SystemContracts.swift` and the store protocols next to them.
+- `Sources/SopranoDesktop/Surfaces/`: the focus border and the Folio menu bar strip
+  (Accessibility API); geometry in Core's `SurfaceGeometry.swift`.
+- `Saver/`: the Soprano screen saver, built by `scripts/build-saver.sh` (called by
+  `dev.sh`/`install.sh`) and packaged into `Contents/Resources/Soprano.saver`.
 - Chrome, `Theme.swift` and `JSONCText` are vendored from Soprano
   (`~/git/private/soprano`) by `scripts/sync-soprano-chrome.sh`; never edit vendored files
   here. `scripts/render-app-icon.swift` is a local copy with the `desktop` glyph.
@@ -39,6 +44,8 @@ swift build
 swift test
 .build/debug/SopranoDesktop status            # read-only
 .build/debug/SopranoDesktop export /tmp/sd    # every theme file, the .vsix, wallpapers; changes nothing else
+.build/debug/SopranoDesktop snapshot-surfaces --out /tmp/sds   # Folio menu bar + focus border PNGs, Paper and Ink
+./scripts/build-saver.sh debug                # .build/debug/Soprano.saver
 ./scripts/render-app-icon.sh [png]            # AppIcon.icns
 ./scripts/dev.sh --build-only                 # .build/debug/Soprano Desktop Dev.app
 ./scripts/install.sh                          # release build → /Applications/Soprano Desktop.app
@@ -55,8 +62,9 @@ swift test
   bat with `BAT_CONFIG_DIR`/`BAT_CACHE_PATH`/`BAT_CONFIG_PATH` in /tmp,
   `code|cursor --user-data-dir /tmp/… --extensions-dir /tmp/… --install-extension`.
 - Never run `apply`/`restore`, launch the app, or run `dev.sh` without `--build-only`
-  unless Furkan asks: Apply changes his global macOS settings, wallpaper, Ghostty, VS Code,
-  Cursor and bat configs.
+  unless Furkan asks: Apply changes his global macOS settings, wallpaper, folder colours,
+  icons, Dock, desktop, Ghostty, VS Code, Cursor and bat configs.
+- Surfaces: check the drawing through `snapshot-surfaces` (read the PNGs).
 - After a verified change to the app or packaging, run `./scripts/install.sh` (authorized;
   it does not restart a running copy).
 

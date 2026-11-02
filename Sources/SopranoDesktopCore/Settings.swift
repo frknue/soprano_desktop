@@ -8,12 +8,65 @@ public enum SystemSetting: String, CaseIterable, Sendable {
     case highlightColor
     /// A rendered Folio wallpaper on every screen, swapped with the appearance.
     case wallpaper
+    /// Folders everywhere in the theme's accent (Appearance → Folder colour → custom).
+    case folderColor
+    /// Tinted icon & widget style in the theme's accent (Appearance → Icon & widget style →
+    /// Tinted, Auto); app icons, widgets and folders take the tint.
+    case tintedIcons
+    /// Folio icons on Home, Desktop, Documents and Downloads.
+    case folderIcons
+    /// A soft Folio alert sound in `~/Library/Sounds`, selected as the alert sound.
+    case alertSound
+    /// The Soprano screen saver installed in `~/Library/Screen Savers` (selected once by
+    /// the user in System Settings → Screen Saver).
+    case screenSaver
 
     public var displayName: String {
         switch self {
         case .accentColor: "Accent colour"
         case .highlightColor: "Highlight colour"
         case .wallpaper: "Wallpaper"
+        case .folderColor: "Folder colour"
+        case .tintedIcons: "Tinted icons"
+        case .folderIcons: "Folder icons"
+        case .alertSound: "Alert sound"
+        case .screenSaver: "Screen saver"
+        }
+    }
+}
+
+/// Calmer desktop behaviour (`desktop.*` in settings.json).
+public enum DesktopBehavior: String, CaseIterable, Sendable {
+    /// Hide the files on the desktop (Desktop & Dock → Show items → On Desktop).
+    case hideDesktopIcons
+    /// No suggested and recent apps in the Dock.
+    case hideDockRecents
+    /// Automatically hide and show the menu bar. Off by default: the Folio menu bar sits on
+    /// the visible menu bar and is not shown while this is on.
+    case hideMenuBar
+
+    public var displayName: String {
+        switch self {
+        case .hideDesktopIcons: "Hide desktop icons"
+        case .hideDockRecents: "Hide recent apps in Dock"
+        case .hideMenuBar: "Hide menu bar"
+        }
+    }
+
+    public static let defaults: Set<DesktopBehavior> = [.hideDesktopIcons, .hideDockRecents]
+}
+
+/// Surfaces Soprano Desktop draws itself (`surfaces.*`); they need Accessibility.
+public enum Surface: String, CaseIterable, Sendable {
+    /// A 2-pt accent rule around the focused window.
+    case focusBorder
+    /// A Folio strip over the app-menu part of the menu bar.
+    case menuBar
+
+    public var displayName: String {
+        switch self {
+        case .focusBorder: "Focus border"
+        case .menuBar: "Folio menu bar"
         }
     }
 }
@@ -76,6 +129,8 @@ public struct DesktopSettings: Equatable, Sendable {
     /// `soprano` (follow Soprano), `folio` (follow macOS) or a Soprano palette id.
     public var theme: String = ThemePairResolver.followSopranoID
     public var system: Set<SystemSetting> = Set(SystemSetting.allCases)
+    public var desktop: Set<DesktopBehavior> = DesktopBehavior.defaults
+    public var surfaces: Set<Surface> = Set(Surface.allCases)
     public var apps: Set<DesktopTarget> = Set(DesktopTarget.allCases)
     public var startAtLogin = true
 

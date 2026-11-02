@@ -1,35 +1,45 @@
 import AppKit
+import Darwin
+import notify
 import SopranoDesktopCore
 
-/// `defaults -g` through CFPreferences (any application, current user, any host: the domain
-/// `defaults write -g` writes). Only the given key changes; the rest of the domain is kept.
-final class LiveGlobalPreferences: GlobalPreferences {
-    func value(forKey key: String) -> Any? {
-        CFPreferencesCopyValue(
-            key as CFString,
-            kCFPreferencesAnyApplication,
-            kCFPreferencesCurrentUser,
-            kCFPreferencesAnyHost
-        )
+/// `defaults` through CFPreferences (current user, any host: what `defaults write` writes).
+/// Only the given key changes; the rest of the domain is kept.
+final class LivePreferences: PreferencesStore {
+    func value(forKey key: String, domain: String) -> Any? {
+        CFPreferencesCopyValue(key as CFString, Self.application(domain), kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
     }
 
-    func setValue(_ value: Any?, forKey key: String) {
-        CFPreferencesSetValue(
-            key as CFString,
-            value.map { $0 as CFPropertyList },
-            kCFPreferencesAnyApplication,
-            kCFPreferencesCurrentUser,
-            kCFPreferencesAnyHost
-        )
-        CFPreferencesSynchronize(kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+    func setValue(_ value: Any?, forKey key: String, domain: String) throws {
+        let application = Self.application(domain)
+        CFPreferencesSetValue(key as CFString, value.map { $0 as CFPropertyList }, application, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+        guard CFPreferencesSynchronize(application, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) else {
+            throw PreferencesError.refused(domain: domain)
+        }
     }
 
-    /// CoreUI re-reads the accent and highlight colours on both notifications (the pair
-    /// System Settings posts); without them apps update only when relaunched.
-    func postColorChange() {
-        let center = DistributedNotificationCenter.default()
-        for name in ["AppleAquaColorVariantChanged", "AppleColorPreferencesChangedNotification"] {
-            center.postNotificationName(Notification.Name(name), object: nil, userInfo: nil, deliverImmediately: true)
+    func post(_ notification: PreferenceNotification) {
+        switch notification {
+        case let .distributed(name):
+            DistributedNotificationCenter.default().postNotificationName(
+                Notification.Name(name), object: nil, userInfo: nil, deliverImmediately: true
+            )
+        case let .darwin(name):
+            notify_post(name)
+        }
+    }
+
+    private static func application(_ domain: String) -> CFString {
+        domain == PreferencesDomain.global ? kCFPreferencesAnyApplication : domain as CFString
+    }
+}
+
+enum PreferencesError: Error, LocalizedError {
+    case refused(domain: String)
+
+    var errorDescription: String? {
+        switch self {
+        case let .refused(domain): "macOS refused to change \(domain)"
         }
     }
 }

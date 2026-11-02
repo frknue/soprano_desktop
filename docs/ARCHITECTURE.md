@@ -56,7 +56,26 @@ state.json stops every change (it may hold originals) until it is fixed or remov
    extensions folder. An app whose themes failed is not switched (or is switched back).
 2. A registry lists every `ManagedSetting` with its theme value, or nil when it is not
    wanted (not applied, switched off, app not installed, its themes failed):
-   - `system.accentColor`, `system.highlightColor` (global defaults);
+   - `system.accentColor`, `system.highlightColor` (global defaults, followed by the two
+     CoreUI colour notifications);
+   - `system.iconAppearance`: folder colour and Tinted icon style through SkyLight's
+     `SLSIconAppearanceConfiguration` (`fetchCurrentIconAppearanceConfiguration`, setters,
+     `save`; persisted as `AppleIconAppearance*` in the global domain). Values found by
+     flipping System Settings → Appearance on macOS 27: theme RegularDark 2, TintedAutomatic
+     6, TintedLight 7, TintedDark 8; tint Automatic 0, Orange 3, Other 10 + custom colour.
+     The record is the whole configuration; folder colour alone keeps the user's style;
+   - `system.folderIcon:<path>` for Home, Desktop, Documents, Downloads (`NSWorkspace.setIcon`,
+     a folder with its own `Icon\r` is never registered);
+   - `system.alertSound` (`com.apple.sound.beep.sound` → `~/Library/Sounds/Soprano.aiff`,
+     synthesised by `AlertSound`, plus `com.apple.sound.settingsChangedNotification`);
+   - `system.screenSaver`: copies the packaged `Soprano.saver` to `~/Library/Screen Savers`
+     when its executable hash differs; removed on Restore if it was not there before;
+   - `desktop.*`: `com.apple.WindowManager StandardHideDesktopIcons`, `com.apple.dock
+     show-recents` (+ Darwin `com.apple.dock.prefchanged`), and for `hideMenuBar`
+     `com.apple.controlcenter AutoHideMenuBarOption` 0, `_HIHideMenuBar`,
+     `AppleMenuBarVisibleInFullscreen` (+ `AppleInterfaceMenuBarHidingChangedNotification`);
+     keys and notification names read from the Desktop & Dock, Menu Bar and Sound settings
+     extensions;
    - `system.wallpaper:<display uuid>:<space id>`, one per screen on its current Space
      (read through the private `CGSCopyManagedDisplaySpaces`; screens whose Space is
      unknown, that show a fullscreen app, or whose picture macOS does not report are left
@@ -97,6 +116,22 @@ Soprano's settings.json changes, the macOS appearance, screen changes, Space cha
 sets a desktop picture per Space; each Space gets the wallpaper when first visited) and
 the CLI's `com.soprano.desktop.state-changed` distributed notification. A pending
 Apply/Restore is never replaced by a plain sync.
+
+## Surfaces
+
+Drawn by Soprano Desktop itself while applied and switched on (`AppDelegate.updateSurfaces`);
+both need Accessibility and wait for it (`AccessibilityTrustWatcher` polls every 2 s).
+
+- `FocusBorderController`: an `AXObserver` on the frontmost app (focused window changed,
+  moved, resized, minimised, destroyed) places a click-through panel with a 2-pt accent rule
+  around the focused standard window; hidden in fullscreen and for Soprano Desktop itself.
+- `FolioMenuBarController`: a Folio strip over the app-menu part of each visible menu bar.
+  Titles come from the frontmost app's `AXMenuBar` and are drawn at the native items' x
+  positions, so a click (`AXPress` on the real item) opens the native menu in place. The
+  strip ends left of the leftmost status item, found through Quartz status-level windows,
+  else every app's `AXExtrasMenuBar`, else 55 % of the width. Off while `hideMenuBar` is on.
+- Geometry (AX top-left ↔ AppKit bottom-left, strip width, title placement) is pure, in
+  Core's `SurfaceGeometry.swift`; `snapshot-surfaces` renders both views offscreen.
 
 ## Files
 

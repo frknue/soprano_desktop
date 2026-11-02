@@ -16,18 +16,25 @@ private let engineLog = Logger(subsystem: "com.soprano.desktop", category: "engi
 final class DesktopEngine {
     struct Dependencies {
         var paths: TargetPaths
-        var preferences: GlobalPreferences
+        var preferences: PreferencesStore
         var desktop: DesktopPictures
         var runner: ProcessRunning
         var apps: AppLocating
+        var iconAppearance: IconAppearanceStore
+        var folderIcons: FolderIconStore
+        /// The packaged `Soprano.saver`; nil when running unpackaged.
+        var screenSaver: URL?
 
         static func live() -> Dependencies {
             Dependencies(
                 paths: TargetPaths(),
-                preferences: LiveGlobalPreferences(),
+                preferences: LivePreferences(),
                 desktop: LiveDesktopPictures(),
                 runner: LiveProcessRunner(),
-                apps: LiveAppLocator()
+                apps: LiveAppLocator(),
+                iconAppearance: LiveIconAppearance(),
+                folderIcons: LiveFolderIcons(),
+                screenSaver: Bundle.main.url(forResource: "Soprano", withExtension: "saver")
             )
         }
     }
@@ -71,6 +78,8 @@ final class DesktopEngine {
     /// unreadable file may hold the user's originals).
     private(set) var stateError: String?
     private let lock: StateLock
+    /// Whether `~/Library/Sounds/Soprano.aiff` holds the current sound (set each run).
+    private var alertSoundReady = false
 
     init(dependencies: Dependencies) {
         self.dependencies = dependencies
@@ -150,6 +159,7 @@ final class DesktopEngine {
                 report.append(ReportItem(name: target.displayName, status: status))
             }
         }
+        alertSoundReady = state.active && settings.system.contains(.alertSound) && prepareAlertSound()
         let palette = pair.palette(for: appearance)
         for (setting, desired) in registry(settings: settings, palette: palette, failed: failed) {
             report.append(ReportItem(name: setting.label, status: reconcile(setting, desired: desired)))
@@ -193,18 +203,19 @@ final class DesktopEngine {
         let preferences = dependencies.preferences
 
         func wants(_ system: SystemSetting) -> Bool { active && settings.system.contains(system) }
+        func wants(_ behavior: DesktopBehavior) -> Bool { active && settings.desktop.contains(behavior) }
         func wants(_ target: DesktopTarget) -> Bool {
             active && settings.apps.contains(target) && isInstalled(target) && !failed.contains(target)
         }
 
         entries.append((
-            GlobalDefaultSetting(id: "system.accentColor", label: SystemSetting.accentColor.displayName,
-                                 key: "AppleAccentColor", preferences: preferences),
+            DefaultsSetting(id: "system.accentColor", label: SystemSetting.accentColor.displayName,
+                            key: "AppleAccentColor", notifications: PreferenceNotification.colorChange, preferences: preferences),
             wants(.accentColor) ? .number(Double(SystemAccent.nearest(to: palette.accent).rawValue)) : nil
         ))
         entries.append((
-            GlobalDefaultSetting(id: "system.highlightColor", label: SystemSetting.highlightColor.displayName,
-                                 key: "AppleHighlightColor", preferences: preferences),
+            DefaultsSetting(id: "system.highlightColor", label: SystemSetting.highlightColor.displayName,
+                            key: "AppleHighlightColor", notifications: PreferenceNotification.colorChange, preferences: preferences),
             wants(.highlightColor) ? .string(SystemHighlight.value(for: SystemHighlight.color(for: palette))) : nil
         ))
         // One entry per screen on its current Space. Recorded originals of Spaces not
@@ -212,6 +223,56 @@ final class DesktopEngine {
         for screen in dependencies.desktop.screens() {
             guard let setting = WallpaperSetting(screen: screen, desktop: dependencies.desktop) else { continue }
             entries.append((setting, wants(.wallpaper) ? wallpaperValue(for: palette, screen: screen) : nil))
+        }
+        entries.append((IconAppearanceSetting(store: dependencies.iconAppearance), iconAppearanceValue(
+            folderColor: wants(.folderColor), tintedIcons: wants(.tintedIcons), palette: palette
+        )))
+        for folder in FolioFolder.allCases {
+            let url = folder.url(home: paths.home)
+            let setting = FolderIconSetting(
+                folder: folder, url: url, store: dependencies.folderIcons,
+                lastWritten: state.written[FolderIconSetting.idPrefix + url.path]
+            )
+            // A folder with an icon of its own is never touched.
+            if state.originals[setting.id] == nil, dependencies.folderIcons.hasCustomIcon(url) { continue }
+            guard FileManager.default.fileExists(atPath: url.path) else { continue }
+            entries.append((setting, wants(.folderIcons) ? .string(FolderIconRenderer.version) : nil))
+        }
+        entries.append((
+            DefaultsSetting(id: "system.alertSound", label: SystemSetting.alertSound.displayName,
+                            key: "com.apple.sound.beep.sound",
+                            notifications: [.distributed("com.apple.sound.settingsChangedNotification")],
+                            preferences: preferences),
+            wants(.alertSound) && alertSoundReady ? .string(paths.alertSoundFile.path) : nil
+        ))
+        if let saver = dependencies.screenSaver, let hash = ScreenSaverSetting.executableHash(of: saver) {
+            entries.append((
+                ScreenSaverSetting(source: saver, destination: paths.screenSaverBundle),
+                wants(.screenSaver) ? .string(hash) : nil
+            ))
+        } else if state.originals["system.screenSaver"] != nil {
+            // Unpackaged run: still able to remove what a packaged run installed.
+            entries.append((ScreenSaverSetting(source: paths.screenSaverBundle, destination: paths.screenSaverBundle), nil))
+        }
+
+        let dockChanged: [PreferenceNotification] = [.darwin("com.apple.dock.prefchanged")]
+        let menuBarChanged: [PreferenceNotification] = [
+            .distributed("AppleInterfaceMenuBarHidingChangedNotification"),
+            .distributed("AppleInterfaceFullScreenMenuBarVisibilityChangedNotification"),
+        ]
+        let behaviours: [(DesktopBehavior, String, String, String, JSONValue, [PreferenceNotification])] = [
+            (.hideDesktopIcons, "desktop.hideDesktopIcons", "com.apple.WindowManager", "StandardHideDesktopIcons", .bool(true), []),
+            (.hideDockRecents, "desktop.hideDockRecents", "com.apple.dock", "show-recents", .bool(false), dockChanged),
+            (.hideMenuBar, "desktop.hideMenuBar.option", "com.apple.controlcenter", "AutoHideMenuBarOption", .number(0), menuBarChanged),
+            (.hideMenuBar, "desktop.hideMenuBar", PreferencesDomain.global, "_HIHideMenuBar", .bool(true), menuBarChanged),
+            (.hideMenuBar, "desktop.hideMenuBar.fullScreen", PreferencesDomain.global, "AppleMenuBarVisibleInFullscreen", .bool(false), menuBarChanged),
+        ]
+        for (behaviour, id, domain, key, value, notifications) in behaviours {
+            entries.append((
+                DefaultsSetting(id: id, label: behaviour.displayName, key: key, domain: domain,
+                                notifications: notifications, preferences: preferences),
+                wants(behaviour) ? value : nil
+            ))
         }
 
         entries.append((
@@ -285,6 +346,37 @@ final class DesktopEngine {
         } catch {
             engineLog.error("\(setting.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return .failed(error.localizedDescription)
+        }
+    }
+
+    /// Folder colour and tinted icons in the palette's accent; the icon style stays the
+    /// user's own unless tinted icons are on. nil when neither is wanted (or macOS has no
+    /// such settings).
+    private func iconAppearanceValue(folderColor: Bool, tintedIcons: Bool, palette: Palette) -> JSONValue? {
+        guard folderColor || tintedIcons else { return nil }
+        let base = state.originals["system.iconAppearance"].flatMap(IconAppearance.init(json:))
+            ?? dependencies.iconAppearance.read()
+        guard let base else { return nil }
+        return IconAppearance(
+            theme: tintedIcons ? IconAppearance.tintedAutomatic : base.theme,
+            tint: IconAppearance.tintOther,
+            color: palette.accent
+        ).json
+    }
+
+    /// Writes the Folio alert sound into `~/Library/Sounds` when it differs; false when it
+    /// could not be written (the alert sound is then not selected).
+    private func prepareAlertSound() -> Bool {
+        let url = paths.alertSoundFile
+        let data = AlertSound.aiff()
+        if (try? Data(contentsOf: url)) == data { return true }
+        do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: url, options: .atomic)
+            return true
+        } catch {
+            engineLog.error("Alert sound: \(error.localizedDescription, privacy: .public)")
+            return false
         }
     }
 
@@ -447,6 +539,10 @@ final class DesktopEngine {
             hasher.update(data: Data([0]))
         }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
+    static func sha256(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     // MARK: State

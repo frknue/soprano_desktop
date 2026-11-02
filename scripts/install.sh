@@ -21,6 +21,7 @@ fi
 echo "Building Soprano Desktop for release..."
 cd "$repo_root"
 swift build -c release
+"$script_dir/build-saver.sh" release
 
 installed_app="$install_root/Soprano Desktop.app"
 "$script_dir/package-app.sh" \

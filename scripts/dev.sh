@@ -23,6 +23,7 @@ repo_root="$(cd "$script_dir/.." && pwd)"
 echo "Building Soprano Desktop Dev..."
 cd "$repo_root"
 swift build
+"$script_dir/build-saver.sh" debug
 
 dev_app="$repo_root/.build/debug/Soprano Desktop Dev.app"
 "$script_dir/package-app.sh" \

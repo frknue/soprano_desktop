@@ -3,13 +3,46 @@ import Testing
 @testable import SopranoDesktop
 @testable import SopranoDesktopCore
 
-private final class FakePreferences: GlobalPreferences {
+/// The global domain in `values`, other domains in `domains`.
+private final class FakePreferences: PreferencesStore {
     var values: [String: Any] = [:]
-    var colorChanges = 0
+    var domains: [String: [String: Any]] = [:]
+    var posted: [PreferenceNotification] = []
+    /// Domains that refuse writes, like macOS's protected ones.
+    var refused: Set<String> = []
 
-    func value(forKey key: String) -> Any? { values[key] }
-    func setValue(_ value: Any?, forKey key: String) { values[key] = value }
-    func postColorChange() { colorChanges += 1 }
+    func value(forKey key: String, domain: String) -> Any? {
+        domain == PreferencesDomain.global ? values[key] : domains[domain]?[key]
+    }
+
+    func setValue(_ value: Any?, forKey key: String, domain: String) throws {
+        if refused.contains(domain) { throw PreferencesError.refused(domain: domain) }
+        if domain == PreferencesDomain.global {
+            values[key] = value
+        } else {
+            domains[domain, default: [:]][key] = value
+        }
+    }
+
+    func post(_ notification: PreferenceNotification) { posted.append(notification) }
+}
+
+@MainActor
+private final class FakeIconAppearance: IconAppearanceStore {
+    var current: IconAppearance? = IconAppearance(theme: 2, tint: 0, color: nil)
+
+    func read() -> IconAppearance? { current }
+    func write(_ appearance: IconAppearance) throws { current = appearance }
+}
+
+@MainActor
+private final class FakeFolderIcons: FolderIconStore {
+    /// Folder path → the Folio icon set on it; `userIcon` marks folders with their own icon.
+    var icons: [String: FolioFolder] = [:]
+    var userIcon: Set<String> = []
+
+    func hasCustomIcon(_ folder: URL) -> Bool { icons[folder.path] != nil || userIcon.contains(folder.path) }
+    func setIcon(_ folder: FolioFolder?, at url: URL) throws { icons[url.path] = folder }
 }
 
 /// Screens with a current Space each; macOS-like, one picture per screen and Space.
@@ -92,6 +125,8 @@ struct DesktopEngineTests {
         let preferences = FakePreferences()
         let desktop = FakeDesktop()
         let runner = FakeRunner()
+        let iconAppearance = FakeIconAppearance()
+        let folderIcons = FakeFolderIcons()
         let engine: DesktopEngine
 
         init() throws {
@@ -113,7 +148,10 @@ struct DesktopEngineTests {
                 preferences: preferences,
                 desktop: desktop,
                 runner: runner,
-                apps: FakeApps(root: apps)
+                apps: FakeApps(root: apps),
+                iconAppearance: iconAppearance,
+                folderIcons: folderIcons,
+                screenSaver: nil
             ))
         }
 
@@ -335,7 +373,10 @@ struct DesktopEngineTests {
             preferences: fixture.preferences,
             desktop: fixture.desktop,
             runner: fixture.runner,
-            apps: fixture.engine.dependencies.apps
+            apps: fixture.engine.dependencies.apps,
+            iconAppearance: fixture.iconAppearance,
+            folderIcons: fixture.folderIcons,
+            screenSaver: nil
         ))
 
         _ = await cli.apply(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
@@ -435,5 +476,112 @@ struct DesktopEngineTests {
         _ = await fixture.engine.sync(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
 
         #expect(installs() == 2)
+    }
+
+    @Test func foldersAndIconsTakeTheAccentAndRestoreGivesBackTheUsersIconStyle() async throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+
+        _ = await fixture.engine.apply(settings: .defaults, pair: TestPalettes.folio, appearance: .light)
+        #expect(fixture.iconAppearance.current == IconAppearance(theme: IconAppearance.tintedAutomatic, tint: IconAppearance.tintOther, color: TestPalettes.paper.accent))
+
+        var foldersOnly = DesktopSettings.defaults
+        foldersOnly.system.remove(.tintedIcons)
+        _ = await fixture.engine.sync(settings: foldersOnly, pair: TestPalettes.folio, appearance: .dark)
+        #expect(fixture.iconAppearance.current == IconAppearance(theme: 2, tint: IconAppearance.tintOther, color: TestPalettes.ink.accent))
+
+        _ = await fixture.engine.restore(settings: foldersOnly, pair: TestPalettes.folio, appearance: .dark)
+        #expect(fixture.iconAppearance.current == IconAppearance(theme: 2, tint: 0, color: nil))
+    }
+
+    @Test func folderIconsGoOnlyOnFoldersWithoutAnIconOfTheirOwnAndComeOffOnRestore() async throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        let desktop = FolioFolder.desktop.url(home: fixture.home)
+        let documents = FolioFolder.documents.url(home: fixture.home)
+        try FileManager.default.createDirectory(at: desktop, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: documents, withIntermediateDirectories: true)
+        fixture.folderIcons.userIcon = [documents.path]
+
+        _ = await fixture.engine.apply(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+        #expect(fixture.folderIcons.icons[desktop.path] == .desktop)
+        #expect(fixture.folderIcons.icons[fixture.home.path] == .home)
+        #expect(fixture.folderIcons.icons[documents.path] == nil)
+
+        _ = await fixture.engine.restore(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+        #expect(fixture.folderIcons.icons.isEmpty)
+        #expect(fixture.folderIcons.userIcon == [documents.path])
+    }
+
+    @Test func theAlertSoundIsWrittenAndSelectedAndRestoreFallsBackToTheSystemDefault() async throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+
+        _ = await fixture.engine.apply(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+        #expect(fixture.preferences.values["com.apple.sound.beep.sound"] as? String == fixture.paths.alertSoundFile.path)
+        #expect(try Data(contentsOf: fixture.paths.alertSoundFile) == AlertSound.aiff())
+        #expect(fixture.preferences.posted.contains(.distributed("com.apple.sound.settingsChangedNotification")))
+
+        _ = await fixture.engine.restore(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+        #expect(fixture.preferences.values["com.apple.sound.beep.sound"] == nil)
+    }
+
+    @Test func theCalmDesktopHidesDesktopIconsAndDockRecentsButLeavesTheMenuBarByDefault() async throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        fixture.preferences.domains["com.apple.dock"] = ["show-recents": true]
+
+        _ = await fixture.engine.apply(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+        #expect(fixture.preferences.domains["com.apple.WindowManager"]?["StandardHideDesktopIcons"] as? Bool == true)
+        #expect(fixture.preferences.domains["com.apple.dock"]?["show-recents"] as? Bool == false)
+        #expect(fixture.preferences.posted.contains(.darwin("com.apple.dock.prefchanged")))
+        #expect(fixture.preferences.values["_HIHideMenuBar"] == nil)
+
+        var hidden = DesktopSettings.defaults
+        hidden.desktop.insert(.hideMenuBar)
+        _ = await fixture.engine.sync(settings: hidden, pair: TestPalettes.folio, appearance: .dark)
+        #expect(fixture.preferences.values["_HIHideMenuBar"] as? Bool == true)
+        #expect(fixture.preferences.domains["com.apple.controlcenter"]?["AutoHideMenuBarOption"] as? Int == 0)
+
+        _ = await fixture.engine.restore(settings: hidden, pair: TestPalettes.folio, appearance: .dark)
+        #expect(fixture.preferences.domains["com.apple.WindowManager"]?["StandardHideDesktopIcons"] == nil)
+        #expect(fixture.preferences.domains["com.apple.dock"]?["show-recents"] as? Bool == true)
+        #expect(fixture.preferences.values["_HIHideMenuBar"] == nil)
+        #expect(fixture.preferences.domains["com.apple.controlcenter"]?["AutoHideMenuBarOption"] == nil)
+    }
+
+    @Test func aRefusedPreferenceIsReportedAndRecordsNothingToRestore() async throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        fixture.preferences.refused = ["com.apple.dock"]
+
+        let report = await fixture.engine.apply(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+
+        #expect(report.contains { if case .failed = $0.status { $0.name == DesktopBehavior.hideDockRecents.displayName } else { false } })
+        #expect(fixture.preferences.values["AppleAccentColor"] as? Int == SystemAccent.orange.rawValue)
+    }
+
+    @Test func theScreenSaverIsInstalledAndRemovedAgainWhenItWasNotThereBefore() async throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        let saver = fixture.home.appendingPathComponent("Bundle/Soprano.saver")
+        try FileManager.default.createDirectory(at: saver.appendingPathComponent("Contents/MacOS"), withIntermediateDirectories: true)
+        try Data("saver-v1".utf8).write(to: saver.appendingPathComponent("Contents/MacOS/Soprano"))
+        let engine = DesktopEngine(dependencies: .init(
+            paths: fixture.paths, preferences: fixture.preferences, desktop: fixture.desktop, runner: fixture.runner,
+            apps: fixture.engine.dependencies.apps, iconAppearance: fixture.iconAppearance,
+            folderIcons: fixture.folderIcons, screenSaver: saver
+        ))
+
+        _ = await engine.apply(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+        let installed = fixture.paths.screenSaverBundle.appendingPathComponent("Contents/MacOS/Soprano")
+        #expect(try Data(contentsOf: installed) == Data("saver-v1".utf8))
+
+        try Data("saver-v2".utf8).write(to: saver.appendingPathComponent("Contents/MacOS/Soprano"))
+        _ = await engine.sync(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+        #expect(try Data(contentsOf: installed) == Data("saver-v2".utf8))
+
+        _ = await engine.restore(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
+        #expect(!FileManager.default.fileExists(atPath: fixture.paths.screenSaverBundle.path))
     }
 }

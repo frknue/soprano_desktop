@@ -1,13 +1,32 @@
 import AppKit
 import SopranoDesktopCore
 
-/// The global preferences domain (`defaults -g`). Tests inject a dictionary.
-protocol GlobalPreferences: AnyObject {
-    func value(forKey key: String) -> Any?
-    /// nil removes the key.
-    func setValue(_ value: Any?, forKey key: String)
-    /// Tells running apps that the accent or highlight colour changed.
-    func postColorChange()
+/// How a running process learns that a preference changed.
+enum PreferenceNotification: Equatable, Sendable {
+    /// `DistributedNotificationCenter`, delivered immediately.
+    case distributed(String)
+    /// `notify_post`.
+    case darwin(String)
+
+    /// What System Settings posts after changing the accent or highlight colour; CoreUI
+    /// re-reads both, so apps update without a relaunch.
+    static let colorChange: [PreferenceNotification] = [
+        .distributed("AppleAquaColorVariantChanged"),
+        .distributed("AppleColorPreferencesChangedNotification"),
+    ]
+}
+
+/// User preferences of any domain (`defaults`). `PreferencesStore.global` is the global
+/// domain (`defaults -g`). Tests inject dictionaries.
+protocol PreferencesStore: AnyObject {
+    func value(forKey key: String, domain: String) -> Any?
+    /// nil removes the key. Throws when macOS refuses the write (protected domains).
+    func setValue(_ value: Any?, forKey key: String, domain: String) throws
+    func post(_ notification: PreferenceNotification)
+}
+
+enum PreferencesDomain {
+    static let global = "NSGlobalDomain"
 }
 
 /// One screen as the wallpaper code needs it.

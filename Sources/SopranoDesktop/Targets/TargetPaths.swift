@@ -48,6 +48,16 @@ struct TargetPaths: Sendable {
         supportDirectory.appendingPathComponent("Wallpapers", isDirectory: true)
     }
 
+    /// `~/Library/Sounds/Soprano.aiff`, listed by System Settings → Sound as "Soprano".
+    var alertSoundFile: URL {
+        home.appendingPathComponent("Library/Sounds/\(AlertSound.fileName)")
+    }
+
+    /// `~/Library/Screen Savers/Soprano.saver`.
+    var screenSaverBundle: URL {
+        home.appendingPathComponent("Library/Screen Savers/Soprano.saver", isDirectory: true)
+    }
+
     /// `~/.config/soprano-desktop`: files the user sources or loads by hand (fzf, Chrome).
     var desktopConfigDirectory: URL {
         configHome.appendingPathComponent("soprano-desktop", isDirectory: true)

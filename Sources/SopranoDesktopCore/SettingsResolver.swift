@@ -38,7 +38,7 @@ private struct Reader {
 
     mutating func settings(from root: [String: Any]) -> DesktopSettings {
         var settings = DesktopSettings()
-        warnUnknownKeys(in: root, path: nil, known: ["theme", "system", "apps", "app"])
+        warnUnknownKeys(in: root, path: nil, known: ["theme", "system", "desktop", "surfaces", "apps", "app"])
 
         if let value = root["theme"] {
             if let id = value as? String, Self.builtInThemes.contains(id) || knownThemeIDs.contains(id) {
@@ -52,6 +52,12 @@ private struct Reader {
         }
         if let system = section("system", in: root) {
             settings.system = flags(system, path: "system", all: SystemSetting.allCases, current: settings.system)
+        }
+        if let desktop = section("desktop", in: root) {
+            settings.desktop = flags(desktop, path: "desktop", all: DesktopBehavior.allCases, current: settings.desktop)
+        }
+        if let surfaces = section("surfaces", in: root) {
+            settings.surfaces = flags(surfaces, path: "surfaces", all: Surface.allCases, current: settings.surfaces)
         }
         if let apps = section("apps", in: root) {
             settings.apps = flags(apps, path: "apps", all: DesktopTarget.allCases, current: settings.apps)

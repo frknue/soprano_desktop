@@ -55,12 +55,34 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         items.append(restore)
         items.append(.separator())
 
-        items.append(submenu("macOS", items: SystemSetting.allCases.map { setting in
+        var systemItems: [NSMenuItem] = SystemSetting.allCases.map { setting in
             let entry = item(setting.displayName, action: #selector(toggleSystem(_:)))
             entry.representedObject = setting.rawValue
             entry.state = settings.settings.system.contains(setting) ? .on : .off
             return entry
+        }
+        systemItems.append(.separator())
+        systemItems.append(item("Choose Screen Saver…", action: #selector(openScreenSaverSettings)))
+        items.append(submenu("macOS", items: systemItems))
+
+        items.append(submenu("Desktop", items: DesktopBehavior.allCases.map { behavior in
+            let entry = item(behavior.displayName, action: #selector(toggleDesktop(_:)))
+            entry.representedObject = behavior.rawValue
+            entry.state = settings.settings.desktop.contains(behavior) ? .on : .off
+            return entry
         }))
+
+        var surfaceItems: [NSMenuItem] = Surface.allCases.map { surface in
+            let entry = item(surface.displayName, action: #selector(toggleSurface(_:)))
+            entry.representedObject = surface.rawValue
+            entry.state = settings.settings.surfaces.contains(surface) ? .on : .off
+            return entry
+        }
+        if !AccessibilityPermission.isTrusted {
+            surfaceItems.append(.separator())
+            surfaceItems.append(item("Allow Accessibility…", action: #selector(requestAccessibility)))
+        }
+        items.append(submenu("Surfaces", items: surfaceItems))
 
         var appItems: [NSMenuItem] = DesktopTarget.allCases.map { target in
             let installed = coordinator.engine.isInstalled(target)
@@ -134,6 +156,27 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     @objc private func toggleSystem(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let setting = SystemSetting(rawValue: raw) else { return }
         settings.write(!settings.settings.system.contains(setting), at: ["system", setting.rawValue])
+    }
+
+    @objc private func toggleDesktop(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let behavior = DesktopBehavior(rawValue: raw) else { return }
+        settings.write(!settings.settings.desktop.contains(behavior), at: ["desktop", behavior.rawValue])
+    }
+
+    @objc private func toggleSurface(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let surface = Surface(rawValue: raw) else { return }
+        settings.write(!settings.settings.surfaces.contains(surface), at: ["surfaces", surface.rawValue])
+    }
+
+    @objc private func requestAccessibility() {
+        AccessibilityPermission.request()
+    }
+
+    /// macOS 14+ keeps the screen saver choice in the wallpaper store; apps cannot set it.
+    @objc private func openScreenSaverSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.ScreenSaver-Settings.extension") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     @objc private func toggleApp(_ sender: NSMenuItem) {

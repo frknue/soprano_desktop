@@ -38,8 +38,10 @@ binary_path="$build_dir/SopranoDesktop"
 info_plist="$repo_root/Support/Info.plist"
 app_icon="$repo_root/Sources/SopranoDesktop/Resources/AppIcon.icns"
 app_license="$repo_root/LICENSE"
+# Built by scripts/build-saver.sh; shipped so the app can install it into ~/Library/Screen Savers.
+screen_saver="$build_dir/Soprano.saver"
 
-for required_path in "$binary_path" "$info_plist" "$app_icon" "$app_license"; do
+for required_path in "$binary_path" "$info_plist" "$app_icon" "$app_license" "$screen_saver"; do
     if [[ ! -e "$required_path" ]]; then
         echo "Missing packaging input: $required_path" >&2
         exit 1
@@ -61,6 +63,7 @@ cp "$binary_path" "$staged_app/Contents/MacOS/SopranoDesktop"
 cp "$info_plist" "$staged_app/Contents/Info.plist"
 cp "$app_icon" "$staged_app/Contents/Resources/AppIcon.icns"
 cp "$app_license" "$staged_app/Contents/Resources/LICENSE"
+/usr/bin/ditto "$screen_saver" "$staged_app/Contents/Resources/Soprano.saver"
 
 # One Info.plist serves every flavour; the caller picks the identity of this build.
 staged_plist="$staged_app/Contents/Info.plist"

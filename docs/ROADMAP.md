@@ -1,27 +1,35 @@
 # Roadmap
 
-What Soprano Desktop deliberately leaves out of stage 1, in the order it would come.
+What Soprano Desktop deliberately leaves out, in the order it would come.
 
-## Stage 2: surfaces Soprano Desktop draws itself
+## Surfaces, next steps
 
-Needs Accessibility permission; no SIP change.
+The focus border and the Folio menu bar strip are built (`Sources/SopranoDesktop/Surfaces/`).
+Left out:
 
-- Folio menu bar replacing the auto-hidden system menu bar (app menus, status items,
-  clock), drawn with `Chrome.swift`.
-- Focus border: a 2-pt sienna rule around the focused window (Folio's focus mark), like
-  JankyBorders. Window frames from the Accessibility API; may need private CGS/SkyLight
-  calls for ordering, which can break on macOS updates.
+- Folio menu bar over the whole bar: the strip covers only the app menus; status items stay
+  native (other apps draw them; there is no API to reparent them). A full replacement would
+  need the system menu bar auto-hidden, and windows would then extend under the strip
+  (no API reserves screen space for a third-party bar).
+- Focus border corner radius per window: macOS 26+ windows have different radii; the
+  border uses one configurable radius.
 - Optional launcher replacing the Dock (or hand the job to Soprano Cast).
+- A screen-saver thumbnail for the System Settings picker.
 
 ## More apps
 
 - Zed (`~/.config/zed/themes/soprano.json`, `theme: { mode: "system", light, dark }`): left
   out because Zed is not installed on Furkan's Mac.
-- lazygit (`gui.theme` in its config.yml), Obsidian (per-vault CSS snippet), Slack (sidebar
-  colour string), Xcode (`.xccolortheme`), `LS_COLORS`/eza.
-- Pointer colours (Accessibility → Display → Pointer): `com.apple.universalaccess` is
-  TCC-protected; needs a check whether it is writable without Full Disk Access.
-- Folio alert sound in `~/Library/Sounds`, a Folio screen saver.
+- Terminal.app profile, Xcode (`.xccolortheme`), lazygit (`gui.theme`), Obsidian (per-vault
+  CSS snippet), Slack (sidebar colour string), `LS_COLORS`/eza.
+
+## Not possible without more permissions
+
+- Pointer colours (Accessibility → Display → Pointer): writing `com.apple.universalaccess`
+  is refused by macOS (`defaults write` exits with "Could not write domain", checked
+  2026-11-02). Would need Full Disk Access for Soprano Desktop — untested.
+- Selecting the screen saver: macOS 14+ keeps the choice in the wallpaper store; Soprano
+  Desktop installs `Soprano.saver` and the user picks it once.
 
 ## Later: SIP-off experiment (todo, not started)
 

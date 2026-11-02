@@ -12,6 +12,13 @@ your own value.
 | macOS accent | The closest system accent (Orange for Folio's sienna) | – |
 | Text selection | The theme's selection colour | rewritten on each switch |
 | Wallpaper | A rendered Folio paper with one sienna pencil tick, per screen | rewritten on each switch |
+| Folders and icons | Folder colour in the theme's accent; Tinted icon & widget style (Auto) in the same accent | accent rewritten on each switch |
+| Folder icons | Folio icons on Home, Desktop, Documents, Downloads (folders with their own icon are left alone) | – |
+| Alert sound | `~/Library/Sounds/Soprano.aiff`, a soft pencil tap | – |
+| Screen saver | `~/Library/Screen Savers/Soprano.saver`: paper, clock, date (pick it once in System Settings → Screen Saver) | the saver |
+| Desktop | Desktop icons hidden, no recent apps in the Dock; optional auto-hiding menu bar | – |
+| Focus border | 2-pt accent rule around the focused window (needs Accessibility) | live |
+| Folio menu bar | Folio strip over the app menus of the menu bar; status items stay native (needs Accessibility) | live |
 | Ghostty | `themes/soprano-light`, `soprano-dark`; `theme = light:soprano-light,dark:soprano-dark` | Ghostty |
 | VS Code, Cursor | "Soprano" extension with Soprano Light/Dark; `window.autoDetectColorScheme` + preferred themes | the editor |
 | bat | `Soprano Light/Dark.tmTheme`; `--theme=auto:system` + light/dark themes | bat |

@@ -25,18 +25,30 @@ extension ManagedSetting {
     func contents() throws -> String? { nil }
 }
 
-/// A key of the global preferences domain. The record is the value, or `null` when the key
-/// was absent (restoring removes it).
-final class GlobalDefaultSetting: ManagedSetting {
+/// One key of a preferences domain. The record is the value, or `null` when the key was
+/// absent (restoring removes it). Every write is followed by `notifications`, so the
+/// process that reads the key picks it up without a relaunch.
+final class DefaultsSetting: ManagedSetting {
     let id: String
     let label: String
     private let key: String
-    private let preferences: GlobalPreferences
+    private let domain: String
+    private let notifications: [PreferenceNotification]
+    private let preferences: PreferencesStore
 
-    init(id: String, label: String, key: String, preferences: GlobalPreferences) {
+    init(
+        id: String,
+        label: String,
+        key: String,
+        domain: String = PreferencesDomain.global,
+        notifications: [PreferenceNotification],
+        preferences: PreferencesStore
+    ) {
         self.id = id
         self.label = label
         self.key = key
+        self.domain = domain
+        self.notifications = notifications
         self.preferences = preferences
     }
 
@@ -49,18 +61,18 @@ final class GlobalDefaultSetting: ManagedSetting {
     }
 
     func apply(_ desired: JSONValue) throws -> String? {
-        preferences.setValue(desired.any, forKey: key)
-        preferences.postColorChange()
+        try preferences.setValue(desired.any, forKey: key, domain: domain)
+        notifications.forEach(preferences.post)
         return nil
     }
 
     func restore(_ original: JSONValue, written: String?) throws {
-        preferences.setValue(original == .null ? nil : original.any, forKey: key)
-        preferences.postColorChange()
+        try preferences.setValue(original == .null ? nil : original.any, forKey: key, domain: domain)
+        notifications.forEach(preferences.post)
     }
 
     private func current() -> JSONValue? {
-        preferences.value(forKey: key).flatMap(JSONValue.init(any:))
+        preferences.value(forKey: key, domain: domain).flatMap(JSONValue.init(any:))
     }
 }
 
@@ -274,6 +286,132 @@ final class WallpaperSetting: ManagedSetting {
         if case let .bool(allowClipping) = object["allowClipping"] { picture.allowClipping = allowClipping }
         picture.fillColor = object["fillColor"]?.stringValue.flatMap(RGB.init(hex:))
         return picture
+    }
+}
+
+/// Icon & widget style plus folder colour (`IconAppearance`). The record is the whole
+/// configuration before the first change.
+final class IconAppearanceSetting: ManagedSetting {
+    let id = "system.iconAppearance"
+    let label = "Folder colour and icons"
+    private let store: IconAppearanceStore
+
+    init(store: IconAppearanceStore) {
+        self.store = store
+    }
+
+    func capture(for desired: JSONValue) throws -> JSONValue {
+        guard let current = store.read() else { throw IconAppearanceError.unavailable }
+        return current.json
+    }
+
+    func matches(_ desired: JSONValue) throws -> Bool {
+        store.read() == IconAppearance(json: desired)
+    }
+
+    func apply(_ desired: JSONValue) throws -> String? {
+        guard let appearance = IconAppearance(json: desired) else { return nil }
+        try store.write(appearance)
+        return nil
+    }
+
+    func restore(_ original: JSONValue, written: String?) throws {
+        guard let appearance = IconAppearance(json: original) else { return }
+        try store.write(appearance)
+    }
+}
+
+/// A Folio icon on one folder. The record is `{ "custom": false }`: the folder had no icon
+/// of its own (folders that have one are never registered), so restoring removes ours.
+/// `matches` relies on the version Soprano Desktop last wrote, so a redesigned icon is
+/// applied again.
+final class FolderIconSetting: ManagedSetting {
+    static let idPrefix = "system.folderIcon:"
+
+    let id: String
+    let label: String
+    private let folder: FolioFolder
+    private let url: URL
+    private let store: FolderIconStore
+    private let lastWritten: String?
+
+    init(folder: FolioFolder, url: URL, store: FolderIconStore, lastWritten: String?) {
+        self.id = Self.idPrefix + url.path
+        self.label = "Folder icon (\(url.lastPathComponent))"
+        self.folder = folder
+        self.url = url
+        self.store = store
+        self.lastWritten = lastWritten
+    }
+
+    func capture(for desired: JSONValue) throws -> JSONValue {
+        .object(["custom": .bool(store.hasCustomIcon(url))])
+    }
+
+    func matches(_ desired: JSONValue) throws -> Bool {
+        store.hasCustomIcon(url) && lastWritten == desired.stringValue
+    }
+
+    func apply(_ desired: JSONValue) throws -> String? {
+        try store.setIcon(folder, at: url)
+        return desired.stringValue
+    }
+
+    func restore(_ original: JSONValue, written: String?) throws {
+        guard case let .object(record) = original, record["custom"] == .bool(false) else { return }
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        try store.setIcon(nil, at: url)
+    }
+}
+
+/// The Soprano screen saver bundle copied into `~/Library/Screen Savers`. The record says
+/// whether a `Soprano.saver` was there before; restoring removes ours when it was not.
+final class ScreenSaverSetting: ManagedSetting {
+    let id = "system.screenSaver"
+    let label = SystemSetting.screenSaver.displayName
+    private let source: URL
+    private let destination: URL
+
+    init(source: URL, destination: URL) {
+        self.source = source
+        self.destination = destination
+    }
+
+    func capture(for desired: JSONValue) throws -> JSONValue {
+        .object(["existed": .bool(FileManager.default.fileExists(atPath: destination.path))])
+    }
+
+    func matches(_ desired: JSONValue) throws -> Bool {
+        Self.executableHash(of: destination) == desired.stringValue
+    }
+
+    func apply(_ desired: JSONValue) throws -> String? {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let staging = destination.deletingLastPathComponent().appendingPathComponent(".Soprano-\(UUID().uuidString).saver")
+        try fileManager.copyItem(at: source, to: staging)
+        if fileManager.fileExists(atPath: destination.path) {
+            _ = try fileManager.replaceItemAt(destination, withItemAt: staging)
+        } else {
+            try fileManager.moveItem(at: staging, to: destination)
+        }
+        return nil
+    }
+
+    func restore(_ original: JSONValue, written: String?) throws {
+        guard case let .object(record) = original, record["existed"] == .bool(false) else { return }
+        if FileManager.default.fileExists(atPath: destination.path) {
+            try FileManager.default.removeItem(at: destination)
+        }
+    }
+
+    /// SHA-256 of the bundle's executable; identifies the build.
+    static func executableHash(of bundle: URL) -> String? {
+        let macOS = bundle.appendingPathComponent("Contents/MacOS", isDirectory: true)
+        guard let name = try? FileManager.default.contentsOfDirectory(atPath: macOS.path).sorted().first,
+              let data = try? Data(contentsOf: macOS.appendingPathComponent(name))
+        else { return nil }
+        return DesktopEngine.sha256(data)
     }
 }
 
