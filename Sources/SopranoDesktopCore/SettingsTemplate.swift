@@ -24,9 +24,10 @@ public enum SettingsTemplate {
         // A Folio wallpaper rendered for every screen, switched with light and dark mode.
         // macOS sets it on the current Space of each screen.
         "wallpaper": true,
-        // Folders everywhere in the theme's accent (Appearance → Folder colour).
+        // Folders everywhere in a muted tint of the theme's accent, a warm grey in Folio
+        // (Appearance → Folder colour).
         "folderColor": true,
-        // Tinted icon & widget style in the theme's accent: app icons, widgets and folders
+        // Tinted icon & widget style in the same muted tint: app icons, widgets and folders
         // take the tint (Appearance → Icon & widget style → Tinted, Auto).
         "tintedIcons": true,
         // Folio icons on your Home, Desktop, Documents and Downloads folders. A folder that

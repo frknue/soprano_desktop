@@ -349,8 +349,8 @@ final class DesktopEngine {
         }
     }
 
-    /// Folder colour and tinted icons in the palette's accent; the icon style stays the
-    /// user's own unless tinted icons are on. nil when neither is wanted (or macOS has no
+    /// Folder colour and tinted icons in the palette's muted icon tint; the icon style stays
+    /// the user's own unless tinted icons are on. nil when neither is wanted (or macOS has no
     /// such settings).
     private func iconAppearanceValue(folderColor: Bool, tintedIcons: Bool, palette: Palette) -> JSONValue? {
         guard folderColor || tintedIcons else { return nil }
@@ -360,7 +360,7 @@ final class DesktopEngine {
         return IconAppearance(
             theme: tintedIcons ? IconAppearance.tintedAutomatic : base.theme,
             tint: IconAppearance.tintOther,
-            color: palette.accent
+            color: palette.iconTint
         ).json
     }
 

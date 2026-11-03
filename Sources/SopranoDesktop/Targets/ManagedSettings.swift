@@ -305,8 +305,10 @@ final class IconAppearanceSetting: ManagedSetting {
         return current.json
     }
 
+    /// Compared as JSON (`#rrggbb`): SkyLight keeps the tint at six decimals, so a colour
+    /// read back never equals the one written component for component.
     func matches(_ desired: JSONValue) throws -> Bool {
-        store.read() == IconAppearance(json: desired)
+        store.read()?.json == IconAppearance(json: desired)?.json
     }
 
     func apply(_ desired: JSONValue) throws -> String? {

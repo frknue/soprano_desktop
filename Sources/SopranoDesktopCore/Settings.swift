@@ -8,10 +8,10 @@ public enum SystemSetting: String, CaseIterable, Sendable {
     case highlightColor
     /// A rendered Folio wallpaper on every screen, swapped with the appearance.
     case wallpaper
-    /// Folders everywhere in the theme's accent (Appearance → Folder colour → custom).
+    /// Folders everywhere in the theme's muted icon tint (Appearance → Folder colour → custom).
     case folderColor
-    /// Tinted icon & widget style in the theme's accent (Appearance → Icon & widget style →
-    /// Tinted, Auto); app icons, widgets and folders take the tint.
+    /// Tinted icon & widget style in the theme's muted icon tint (Appearance → Icon & widget
+    /// style → Tinted, Auto); app icons, widgets and folders take the tint.
     case tintedIcons
     /// Folio icons on Home, Desktop, Documents and Downloads.
     case folderIcons

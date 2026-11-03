@@ -27,12 +27,23 @@ private final class FakePreferences: PreferencesStore {
     func post(_ notification: PreferenceNotification) { posted.append(notification) }
 }
 
+/// Keeps the tint colour at six decimals, as SkyLight persists and reports it
+/// (`AppleIconAppearanceCustomTintColor` = "0.878431 0.541176 0.321569 1.000000").
 @MainActor
 private final class FakeIconAppearance: IconAppearanceStore {
     var current: IconAppearance? = IconAppearance(theme: 2, tint: 0, color: nil)
+    var writes = 0
 
     func read() -> IconAppearance? { current }
-    func write(_ appearance: IconAppearance) throws { current = appearance }
+    func write(_ appearance: IconAppearance) throws {
+        func sixDecimals(_ value: Double) -> Double { (value * 1_000_000).rounded() / 1_000_000 }
+        var stored = appearance
+        stored.color = appearance.color.map {
+            RGB(red: sixDecimals($0.red), green: sixDecimals($0.green), blue: sixDecimals($0.blue))
+        }
+        current = stored
+        writes += 1
+    }
 }
 
 @MainActor
@@ -478,17 +489,22 @@ struct DesktopEngineTests {
         #expect(installs() == 2)
     }
 
-    @Test func foldersAndIconsTakeTheAccentAndRestoreGivesBackTheUsersIconStyle() async throws {
+    @Test func foldersAndIconsTakeTheIconTintAndRestoreGivesBackTheUsersIconStyle() async throws {
         let fixture = try Fixture()
         defer { try? FileManager.default.removeItem(at: fixture.home) }
 
         _ = await fixture.engine.apply(settings: .defaults, pair: TestPalettes.folio, appearance: .light)
-        #expect(fixture.iconAppearance.current == IconAppearance(theme: IconAppearance.tintedAutomatic, tint: IconAppearance.tintOther, color: TestPalettes.paper.accent))
+        #expect(fixture.iconAppearance.current?.json == IconAppearance(theme: IconAppearance.tintedAutomatic, tint: IconAppearance.tintOther, color: TestPalettes.paper.iconTint).json)
+
+        // What macOS reports back counts as the tint already set: no second write.
+        let writes = fixture.iconAppearance.writes
+        _ = await fixture.engine.sync(settings: .defaults, pair: TestPalettes.folio, appearance: .light)
+        #expect(fixture.iconAppearance.writes == writes)
 
         var foldersOnly = DesktopSettings.defaults
         foldersOnly.system.remove(.tintedIcons)
         _ = await fixture.engine.sync(settings: foldersOnly, pair: TestPalettes.folio, appearance: .dark)
-        #expect(fixture.iconAppearance.current == IconAppearance(theme: 2, tint: IconAppearance.tintOther, color: TestPalettes.ink.accent))
+        #expect(fixture.iconAppearance.current?.json == IconAppearance(theme: 2, tint: IconAppearance.tintOther, color: TestPalettes.ink.iconTint).json)
 
         _ = await fixture.engine.restore(settings: foldersOnly, pair: TestPalettes.folio, appearance: .dark)
         #expect(fixture.iconAppearance.current == IconAppearance(theme: 2, tint: 0, color: nil))
