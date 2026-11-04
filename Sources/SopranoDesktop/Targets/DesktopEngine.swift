@@ -225,7 +225,7 @@ final class DesktopEngine {
             entries.append((setting, wants(.wallpaper) ? wallpaperValue(for: palette, screen: screen) : nil))
         }
         entries.append((IconAppearanceSetting(store: dependencies.iconAppearance), iconAppearanceValue(
-            folderColor: wants(.folderColor), tintedIcons: wants(.tintedIcons), palette: palette
+            folderColor: wants(.folderColor), palette: palette
         )))
         for folder in FolioFolder.allCases {
             let url = folder.url(home: paths.home)
@@ -349,16 +349,15 @@ final class DesktopEngine {
         }
     }
 
-    /// Folder colour and tinted icons in the palette's muted icon tint; the icon style stays
-    /// the user's own unless tinted icons are on. nil when neither is wanted (or macOS has no
-    /// such settings).
-    private func iconAppearanceValue(folderColor: Bool, tintedIcons: Bool, palette: Palette) -> JSONValue? {
-        guard folderColor || tintedIcons else { return nil }
+    /// Folder colour in the palette's muted icon tint; the icon & widget style stays the
+    /// user's own. nil when not wanted (or macOS has no such setting).
+    private func iconAppearanceValue(folderColor: Bool, palette: Palette) -> JSONValue? {
+        guard folderColor else { return nil }
         let base = state.originals["system.iconAppearance"].flatMap(IconAppearance.init(json:))
             ?? dependencies.iconAppearance.read()
         guard let base else { return nil }
         return IconAppearance(
-            theme: tintedIcons ? IconAppearance.tintedAutomatic : base.theme,
+            theme: base.theme,
             tint: IconAppearance.tintOther,
             color: palette.iconTint
         ).json

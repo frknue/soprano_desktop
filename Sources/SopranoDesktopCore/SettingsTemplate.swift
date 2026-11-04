@@ -27,9 +27,6 @@ public enum SettingsTemplate {
         // Folders everywhere in a muted tint of the theme's accent, a warm grey in Folio
         // (Appearance → Folder colour).
         "folderColor": true,
-        // Tinted icon & widget style in the same muted tint: app icons, widgets and folders
-        // take the tint (Appearance → Icon & widget style → Tinted, Auto).
-        "tintedIcons": true,
         // Folio icons on your Home, Desktop, Documents and Downloads folders. A folder that
         // already has its own icon is left alone.
         "folderIcons": true,

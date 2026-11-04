@@ -58,12 +58,12 @@ state.json stops every change (it may hold originals) until it is fixed or remov
    wanted (not applied, switched off, app not installed, its themes failed):
    - `system.accentColor`, `system.highlightColor` (global defaults, followed by the two
      CoreUI colour notifications);
-   - `system.iconAppearance`: folder colour and Tinted icon style through SkyLight's
+   - `system.iconAppearance`: folder colour through SkyLight's
      `SLSIconAppearanceConfiguration` (`fetchCurrentIconAppearanceConfiguration`, setters,
      `save`; persisted as `AppleIconAppearance*` in the global domain). Values found by
      flipping System Settings → Appearance on macOS 27: theme RegularDark 2, TintedAutomatic
      6, TintedLight 7, TintedDark 8; tint Automatic 0, Orange 3, Other 10 + custom colour.
-     The record is the whole configuration; folder colour alone keeps the user's style;
+     The record is the whole configuration; the icon & widget style stays the user's own;
    - `system.folderIcon:<path>` for Home, Desktop, Documents, Downloads (`NSWorkspace.setIcon`,
      a folder with its own `Icon\r` is never registered);
    - `system.alertSound` (`com.apple.sound.beep.sound` → `~/Library/Sounds/Soprano.aiff`,

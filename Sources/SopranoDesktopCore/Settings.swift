@@ -10,9 +10,6 @@ public enum SystemSetting: String, CaseIterable, Sendable {
     case wallpaper
     /// Folders everywhere in the theme's muted icon tint (Appearance → Folder colour → custom).
     case folderColor
-    /// Tinted icon & widget style in the theme's muted icon tint (Appearance → Icon & widget
-    /// style → Tinted, Auto); app icons, widgets and folders take the tint.
-    case tintedIcons
     /// Folio icons on Home, Desktop, Documents and Downloads.
     case folderIcons
     /// A soft Folio alert sound in `~/Library/Sounds`, selected as the alert sound.
@@ -27,7 +24,6 @@ public enum SystemSetting: String, CaseIterable, Sendable {
         case .highlightColor: "Highlight colour"
         case .wallpaper: "Wallpaper"
         case .folderColor: "Folder colour"
-        case .tintedIcons: "Tinted icons"
         case .folderIcons: "Folder icons"
         case .alertSound: "Alert sound"
         case .screenSaver: "Screen saver"

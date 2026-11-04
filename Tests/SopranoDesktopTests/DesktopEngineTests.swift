@@ -489,24 +489,22 @@ struct DesktopEngineTests {
         #expect(installs() == 2)
     }
 
-    @Test func foldersAndIconsTakeTheIconTintAndRestoreGivesBackTheUsersIconStyle() async throws {
+    @Test func foldersTakeTheIconTintKeepingTheUsersIconStyleAndRestoreGivesItBack() async throws {
         let fixture = try Fixture()
         defer { try? FileManager.default.removeItem(at: fixture.home) }
 
         _ = await fixture.engine.apply(settings: .defaults, pair: TestPalettes.folio, appearance: .light)
-        #expect(fixture.iconAppearance.current?.json == IconAppearance(theme: IconAppearance.tintedAutomatic, tint: IconAppearance.tintOther, color: TestPalettes.paper.iconTint).json)
+        #expect(fixture.iconAppearance.current?.json == IconAppearance(theme: 2, tint: IconAppearance.tintOther, color: TestPalettes.paper.iconTint).json)
 
         // What macOS reports back counts as the tint already set: no second write.
         let writes = fixture.iconAppearance.writes
         _ = await fixture.engine.sync(settings: .defaults, pair: TestPalettes.folio, appearance: .light)
         #expect(fixture.iconAppearance.writes == writes)
 
-        var foldersOnly = DesktopSettings.defaults
-        foldersOnly.system.remove(.tintedIcons)
-        _ = await fixture.engine.sync(settings: foldersOnly, pair: TestPalettes.folio, appearance: .dark)
+        _ = await fixture.engine.sync(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
         #expect(fixture.iconAppearance.current?.json == IconAppearance(theme: 2, tint: IconAppearance.tintOther, color: TestPalettes.ink.iconTint).json)
 
-        _ = await fixture.engine.restore(settings: foldersOnly, pair: TestPalettes.folio, appearance: .dark)
+        _ = await fixture.engine.restore(settings: .defaults, pair: TestPalettes.folio, appearance: .dark)
         #expect(fixture.iconAppearance.current == IconAppearance(theme: 2, tint: 0, color: nil))
     }
 

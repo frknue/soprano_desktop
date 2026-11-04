@@ -12,7 +12,7 @@ your own value.
 | macOS accent | The closest system accent (Orange for Folio's sienna) | – |
 | Text selection | The theme's selection colour | rewritten on each switch |
 | Wallpaper | A rendered Folio paper with one sienna pencil tick, per screen | rewritten on each switch |
-| Folders and icons | Folder colour in a muted tint of the theme's accent (a warm grey in Folio); Tinted icon & widget style (Auto) in the same tint | tint rewritten on each switch |
+| Folder colour | Folder colour in a muted tint of the theme's accent (a warm grey in Folio); app icons keep your icon & widget style | tint rewritten on each switch |
 | Folder icons | Folio icons on Home, Desktop, Documents, Downloads (folders with their own icon are left alone) | – |
 | Alert sound | `~/Library/Sounds/Soprano.aiff`, a soft pencil tap | – |
 | Screen saver | `~/Library/Screen Savers/Soprano.saver`: paper, clock, date (pick it once in System Settings → Screen Saver) | the saver |

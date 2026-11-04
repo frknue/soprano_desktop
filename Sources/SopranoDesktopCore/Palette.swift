@@ -197,9 +197,9 @@ public struct Palette: Equatable, Sendable {
         isLight ? bgBase.mixed(with: accent, amount: 0.12) : bgBase.mixed(with: textPrimary, amount: 0.11)
     }
 
-    /// Folder colour and tinted icons: the accent 70 % of the way to `textMuted`, so folders
-    /// and app icons carry a quiet tint instead of the full accent (Folio: Paper `#76543d`,
-    /// Ink `#b39279`). Rounded to whole bytes, the precision the setting is kept at.
+    /// Folder colour: the accent 70 % of the way to `textMuted`, so folders carry a quiet
+    /// tint instead of the full accent (Folio: Paper `#76543d`, Ink `#b39279`). Rounded to
+    /// whole bytes, the precision the setting is kept at.
     public var iconTint: RGB {
         let tint = accent.mixed(with: textMuted, amount: 0.7)
         return RGB(hex: tint.hex) ?? tint

@@ -289,11 +289,11 @@ final class WallpaperSetting: ManagedSetting {
     }
 }
 
-/// Icon & widget style plus folder colour (`IconAppearance`). The record is the whole
-/// configuration before the first change.
+/// Folder colour (`IconAppearance`). The record is the whole configuration before the
+/// first change.
 final class IconAppearanceSetting: ManagedSetting {
     let id = "system.iconAppearance"
-    let label = "Folder colour and icons"
+    let label = "Folder colour"
     private let store: IconAppearanceStore
 
     init(store: IconAppearanceStore) {

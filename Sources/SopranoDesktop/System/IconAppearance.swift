@@ -15,7 +15,6 @@ struct IconAppearance: Equatable, Sendable {
     /// The custom tint while `tint` is `other`.
     var color: RGB?
 
-    static let tintedAutomatic: UInt32 = 6
     static let tintAutomatic: UInt32 = 0
     static let tintOther: UInt32 = 10
 
