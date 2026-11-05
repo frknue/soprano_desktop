@@ -66,3 +66,19 @@ Open questions the prototype must answer:
    updates.
 
 Only if 1 works with an acceptable answer to 2 and 4 is a full module worth building.
+
+## Linux (Omarchy)
+
+Furkan moves to Omarchy (Arch Linux, Hyprland, Wayland) later. There, theming is a system
+feature: an Omarchy theme is a directory with configs for Hyprland, Waybar, the terminals,
+Neovim and the other apps, plus wallpapers, switched from Omarchy's theme menu.
+
+- Ship Folio Paper and Folio Ink (or whichever theme Soprano uses) as Omarchy themes instead of
+  porting the app.
+- Reuse the generators in `SopranoDesktopCore` (about 3,800 lines, Foundation) for what carries
+  over: Ghostty, VS Code/Cursor, bat, Neovim, fzf, the Folio wallpaper. Build that core on Linux
+  (Swift through `swiftly`) or run it on the Mac to export the theme files.
+- No Linux counterpart, dropped there: macOS accent and selection colour, folder colour and
+  icons, alert sound, screen saver, Dock and menu-bar settings, the Folio menu-bar strip.
+- Light/dark switching follows Omarchy's theme switch; check whether one theme per mode or a
+  hook on the switch fits better.
